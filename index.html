@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify My Warranty - Official Verification Portal</title>
+    
+    <!-- Bootstrap 5 CSS & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- HERO SECTION -->
+    <div class="hero">
+        <div class="container">
+            
+            <!-- Top Navigation -->
+            <div class="top-nav">
+                <a href="index.html" class="brand-logo">
+                    <i class="bi bi-shield-check text-warning fs-3"></i> VerifyWarranty
+                </a>
+
+                <div class="d-flex align-items-center gap-2">
+                    <span id="demoBanner" class="demo-badge-pill" style="display:none;" title="Supabase configuration is optional. You can test immediately!">
+                        <i class="bi bi-info-circle-fill"></i> Demo Mode Active
+                    </span>
+                    <a href="index.html" class="btn btn-outline-light btn-sm rounded-pill px-3">
+                        <i class="bi bi-house-door-fill"></i> Home
+                    </a>
+                    <a href="admin/login.html" class="btn btn-light text-primary btn-sm fw-bold rounded-pill px-3 shadow-sm">
+                        <i class="bi bi-lock-fill"></i> Admin Login
+                    </a>
+                </div>
+            </div>
+
+            <h1 class="hero-title">Check Your Status</h1>
+            <p class="hero-subtitle">Official Warranty & Product Verification Portal</p>
+        </div>
+    </div>
+
+    <!-- MAIN SEARCH CONTAINER -->
+    <div class="container pb-5">
+        <div class="row justify-content-center">
+            <div class="col-md-9 col-lg-7 search-card-wrapper">
+                
+                <div class="search-card">
+                    <h4 class="text-center mb-3 text-primary fw-bold">Verify Product Warranty</h4>
+                    <p class="text-center text-muted small mb-4">
+                        Search by your registered <strong>Serial Number</strong>, <strong>Email Address</strong>, or <strong>Mobile Number</strong>
+                    </p>
+
+                    <!-- Filter Tabs -->
+                    <div class="d-flex justify-content-center mb-4" id="searchTabs">
+                        <ul class="nav nav-pills search-tabs p-1 bg-light rounded-pill border">
+                            <li class="nav-item">
+                                <button class="nav-link active" data-type="all">All-in-One</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-type="serial">Serial No.</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-type="email">Email</button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" data-type="mobile">Mobile</button>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Search Form -->
+                    <form id="warrantyForm">
+                        <div class="search-input-group mb-3">
+                            <i class="bi bi-search search-icon"></i>
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                id="searchInput" 
+                                placeholder="Enter Serial Number, Email, or Mobile..." 
+                                autocomplete="off" 
+                                required
+                            >
+                        </div>
+                        <button type="submit" class="btn btn-search text-white w-100 py-3 shadow-sm d-flex align-items-center justify-content-center gap-2">
+                            <i class="bi bi-shield-check fs-5"></i> Check Warranty Now
+                        </button>
+                    </form>
+
+                    <!-- Results Section -->
+                    <div id="resultContainer" class="mt-4"></div>
+
+                    <!-- Action Buttons -->
+                    <div id="actionButtons" class="mt-4 text-center" style="display:none;">
+                        <hr class="text-muted">
+                        <button onclick="resetSearch()" class="btn btn-outline-dark me-2 rounded-pill px-4">
+                            <i class="bi bi-arrow-repeat me-1"></i> New Search
+                        </button>
+                        <a href="index.html" class="btn btn-dark rounded-pill px-4">
+                            <i class="bi bi-house-door me-1"></i> Home
+                        </a>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+
+        <!-- HOW IT WORKS & FEATURES SECTION -->
+        <div class="row g-4 justify-content-center mt-5">
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4">
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary mx-auto mb-3">
+                        <i class="bi bi-upc-scan"></i>
+                    </div>
+                    <h5 class="fw-bold">Any Identifier</h5>
+                    <p class="text-muted small mb-0">
+                        Search by hardware Serial Number, registered Email, or Mobile Number without hassle.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4">
+                    <div class="stat-icon bg-success bg-opacity-10 text-success mx-auto mb-3">
+                        <i class="bi bi-patch-check"></i>
+                    </div>
+                    <h5 class="fw-bold">Real-Time Validation</h5>
+                    <p class="text-muted small mb-0">
+                        Instantly check active coverage periods, software licenses, and warranty expiration dates.
+                    </p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4">
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning mx-auto mb-3">
+                        <i class="bi bi-file-earmark-pdf"></i>
+                    </div>
+                    <h5 class="fw-bold">Verified Certificates</h5>
+                    <p class="text-muted small mb-0">
+                        View and print official warranty certificates for service center claims and proof of purchase.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CERTIFICATE MODAL -->
+    <div class="modal fade" id="certificateModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-0 pb-0">
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4" id="certificateModalBody">
+                    <!-- Certificate HTML dynamically inserted here -->
+                </div>
+                <div class="modal-footer border-0 justify-content-between pt-0 px-4 pb-4">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4" onclick="window.print()">
+                        <i class="bi bi-printer me-1"></i> Print Certificate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="container">
+            <p class="mb-1">&copy; <span id="currentYear"></span> VerifyWarranty. All rights reserved.</p>
+            <p class="small text-white-50 mb-0">Powered by Supabase &amp; Modern Cloud Infrastructure</p>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Supabase JS Client (v2 CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Application Scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/supabaseClient.js"></script>
+    <script src="js/verify.js"></script>
+    <script>
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

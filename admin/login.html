@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Login - Foxzen / VerifyMyWarranty</title>
+    
+    <!-- Bootstrap 5 CSS & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="../css/style.css">
+</head>
+<body class="login-page-bg">
+
+    <div class="container d-flex flex-column justify-content-center align-items-center" style="min-height: 100vh; padding: 25px 0;">
+        <div class="card login-card-modern p-4 p-md-5" id="loginCard">
+            
+            <!-- BRAND & SECURITY BADGE -->
+            <div class="text-center mb-4">
+                <div class="login-brand-icon-wrapper mx-auto mb-3">
+                    <i class="bi bi-shield-lock-fill fs-1"></i>
+                </div>
+                <h3 class="fw-bold text-dark mb-1 d-flex align-items-center justify-content-center gap-2">
+                    Foxzen <span class="badge bg-primary-subtle text-primary border rounded-pill px-2 py-1 small fw-semibold fs-6">Admin</span>
+                </h3>
+                <p class="text-muted small mb-0">Authorized Security & Warranty Portal</p>
+            </div>
+
+            <!-- ALERT MESSAGE -->
+            <div id="loginAlert" class="alert alert-danger d-none small py-2 px-3 text-center rounded-3 shadow-sm" role="alert"></div>
+
+            <!-- LOGIN FORM -->
+            <form id="adminLoginForm" novalidate>
+                <!-- ADMIN EMAIL / USERNAME -->
+                <div class="mb-3">
+                    <label class="form-label fw-semibold small text-secondary mb-1">Admin Email / Username</label>
+                    <div class="input-group login-input-group">
+                        <span class="input-group-text"><i class="bi bi-person-fill text-muted"></i></span>
+                        <input type="email" class="form-control py-2" id="adminEmail" placeholder="admin@foxzen.com" value="admin@foxzen.com" required autocomplete="username">
+                    </div>
+                </div>
+
+                <!-- MASTER PASSWORD WITH SHOW/HIDE TOGGLE -->
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label fw-semibold small text-secondary mb-0">Master Password</label>
+                        <span class="badge bg-light text-muted border rounded-pill px-2 py-0" style="font-size: 0.7rem;">Encrypted</span>
+                    </div>
+                    <div class="input-group login-input-group">
+                        <span class="input-group-text"><i class="bi bi-key-fill text-muted"></i></span>
+                        <input type="password" class="form-control py-2" id="adminPassword" placeholder="Enter secure password" required autocomplete="current-password">
+                        <button type="button" class="btn btn-outline-secondary border-start-0 bg-white text-muted px-3" id="togglePassBtn" onclick="togglePasswordVisibility()" title="Show/Hide Password">
+                            <i class="bi bi-eye-fill" id="togglePassIcon"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- REMEMBER ME & SECURITY BADGE -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="rememberMe">
+                        <label class="form-check-label small text-muted" for="rememberMe">
+                            Remember session
+                        </label>
+                    </div>
+                    <span class="small text-muted font-monospace" style="font-size: 0.75rem;">
+                        <i class="bi bi-lock-fill text-success me-1"></i>SSL Protected
+                    </span>
+                </div>
+
+                <!-- SUBMIT BUTTON -->
+                <button type="submit" class="btn login-btn-gradient w-100 py-3 rounded-3 shadow-sm d-flex align-items-center justify-content-center gap-2" id="loginSubmitBtn">
+                    <i class="bi bi-box-arrow-in-right fs-5"></i>
+                    <span id="loginBtnText">Sign In to Dashboard</span>
+                </button>
+            </form>
+
+            <!-- FOOTER NOTICE & BACK TO PORTAL -->
+            <div class="text-center pt-3 mt-3 border-top">
+                <div class="d-flex align-items-center justify-content-center gap-2 text-muted mb-3" style="font-size: 0.78rem;">
+                    <i class="bi bi-shield-check text-success"></i>
+                    <span>SHA-256 Protected Administration Gateway</span>
+                </div>
+                <a href="../index.html" class="text-decoration-none small text-secondary d-inline-flex align-items-center gap-1 hover-primary">
+                    <i class="bi bi-arrow-left"></i> Back to Customer Portal
+                </a>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Supabase JS Client (v2 CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="../js/config.js"></script>
+    <script>
+        // Toggle Password Visibility
+        function togglePasswordVisibility() {
+            const passInput = document.getElementById('adminPassword');
+            const icon = document.getElementById('togglePassIcon');
+            if (passInput.type === 'password') {
+                passInput.type = 'text';
+                icon.className = 'bi bi-eye-slash-fill';
+            } else {
+                passInput.type = 'password';
+                icon.className = 'bi bi-eye-fill';
+            }
+        }
+
+        // Native SHA-256 Hash Function
+        async function sha256Hex(text) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(text);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // Rate-limiting state
+        let failedAttempts = parseInt(sessionStorage.getItem('foxzen_failed_logins') || '0', 10);
+        let lockoutUntil = parseInt(sessionStorage.getItem('foxzen_lockout_until') || '0', 10);
+
+        function updateLockoutUI() {
+            const now = Date.now();
+            if (lockoutUntil > now) {
+                const remainingSecs = Math.ceil((lockoutUntil - now) / 1000);
+                const alertBox = document.getElementById('loginAlert');
+                const submitBtn = document.getElementById('loginSubmitBtn');
+                
+                alertBox.className = 'alert alert-warning small py-2 px-3 text-center rounded-3 shadow-sm';
+                alertBox.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i> Too many failed attempts. Locked for <strong>${remainingSecs}s</strong>.`;
+                alertBox.classList.remove('d-none');
+                submitBtn.disabled = true;
+                setTimeout(updateLockoutUI, 1000);
+                return true;
+            } else {
+                document.getElementById('loginSubmitBtn').disabled = false;
+                return false;
+            }
+        }
+
+        // Check lock on load
+        updateLockoutUI();
+
+        // Initialize Supabase Client
+        let supabaseClient = null;
+        if (CONFIG.isConfigured() && window.supabase) {
+            try {
+                supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+            } catch (e) {
+                console.error("Supabase client init error:", e);
+            }
+        }
+
+        // Prefill remembered admin email
+        const storedAdminEmail = localStorage.getItem('foxzen_admin_email');
+        if (storedAdminEmail) {
+            document.getElementById('adminEmail').value = storedAdminEmail;
+        } else if (supabaseClient) {
+            supabaseClient.from('admin_credentials').select('email').eq('id', 'admin').maybeSingle().then(({ data }) => {
+                if (data && data.email) {
+                    document.getElementById('adminEmail').value = data.email;
+                    localStorage.setItem('foxzen_admin_email', data.email);
+                }
+            }).catch(() => {});
+        }
+
+        // Handle Login Submission
+        document.getElementById('adminLoginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (updateLockoutUI()) return;
+
+            const emailInput = document.getElementById('adminEmail');
+            const passInput = document.getElementById('adminPassword');
+            const email = (emailInput.value || '').trim().toLowerCase();
+            const pass = passInput.value;
+            const alertBox = document.getElementById('loginAlert');
+            const card = document.getElementById('loginCard');
+            const submitBtn = document.getElementById('loginSubmitBtn');
+            const btnText = document.getElementById('loginBtnText');
+
+            if (!pass) {
+                passInput.focus();
+                return;
+            }
+
+            // Show verifying state
+            submitBtn.disabled = true;
+            btnText.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Connecting to Supabase...';
+
+            try {
+                if (!supabaseClient) {
+                    throw new Error("Supabase is not configured yet. Please check your Supabase URL and Anon Key in js/config.js.");
+                }
+
+                let isAuthorized = false;
+
+                // Priority 1: Supabase Built-in Auth (auth.users)
+                try {
+                    const { data: authData, error: authErr } = await supabaseClient.auth.signInWithPassword({
+                        email: email,
+                        password: pass
+                    });
+                    if (!authErr && authData?.session) {
+                        isAuthorized = true;
+                    }
+                } catch (authEx) {
+                    // Fallthrough to Supabase DB table verification
+                }
+
+                // Priority 2: Supabase Database Table via Secure RPC (verify_admin_login)
+                if (!isAuthorized) {
+                    const enteredHash = await sha256Hex(pass);
+                    const { data: rpcMatch, error: rpcErr } = await supabaseClient.rpc('verify_admin_login', {
+                        check_email: email,
+                        check_hash: enteredHash
+                    });
+
+                    if (!rpcErr && rpcMatch === true) {
+                        isAuthorized = true;
+                    } else if (rpcErr && (rpcErr.message?.includes('does not exist') || rpcErr.code === '42883' || rpcErr.code === 'PGRST202')) {
+                        // Fallback: Check admin_credentials table directly if RPC function not created yet
+                        const { data: rowData, error: tableErr } = await supabaseClient
+                            .from('admin_credentials')
+                            .select('password_hash')
+                            .eq('email', email)
+                            .maybeSingle();
+
+                        if (!tableErr && rowData && rowData.password_hash) {
+                            if (rowData.password_hash.trim().toLowerCase() === enteredHash) {
+                                isAuthorized = true;
+                            }
+                        } else if (tableErr && (tableErr.message?.includes('admin_credentials') || tableErr.code === 'PGRST205')) {
+                            // Table does not exist in Supabase yet
+                            alertBox.className = 'alert alert-warning small py-2 px-3 text-start rounded-3 shadow-sm';
+                            alertBox.innerHTML = `
+                                <strong><i class="bi bi-database-exclamation me-1"></i> Database Table Not Created Yet!</strong><br>
+                                Please copy Section 6 from <code>supabase/schema.sql</code> and click <strong>Run</strong> in your 
+                                <a href="https://supabase.com/dashboard/project/_/sql" target="_blank" class="fw-bold">Supabase SQL Editor</a> 
+                                to save and verify your password in Supabase.
+                            `;
+                            alertBox.classList.remove('d-none');
+                            submitBtn.disabled = false;
+                            btnText.textContent = 'Sign In to Dashboard';
+                            return;
+                        }
+                    }
+                }
+
+                if (isAuthorized) {
+                    // Reset failed attempts on success
+                    sessionStorage.removeItem('foxzen_failed_logins');
+                    sessionStorage.removeItem('foxzen_lockout_until');
+
+                    // Set authentication token
+                    sessionStorage.setItem(CONFIG.ADMIN_SESSION_KEY, 'authenticated');
+                    localStorage.setItem('foxzen_admin_email', email);
+
+                    if (document.getElementById('rememberMe').checked) {
+                        localStorage.setItem(CONFIG.ADMIN_SESSION_KEY, 'authenticated');
+                    }
+
+                    // Success Feedback
+                    alertBox.className = 'alert alert-success small py-2 px-3 text-center rounded-3 shadow-sm';
+                    alertBox.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Authenticated via Supabase! Redirecting...';
+                    alertBox.classList.remove('d-none');
+                    btnText.textContent = 'Welcome back!';
+
+                    setTimeout(() => {
+                        window.location.href = 'index.html';
+                    }, 500);
+
+                } else {
+                    // Increment failed attempts
+                    failedAttempts++;
+                    sessionStorage.setItem('foxzen_failed_logins', failedAttempts);
+
+                    // If 5 failed attempts, lock for 30 seconds
+                    if (failedAttempts >= 5) {
+                        lockoutUntil = Date.now() + 30000;
+                        sessionStorage.setItem('foxzen_lockout_until', lockoutUntil);
+                        updateLockoutUI();
+                    } else {
+                        alertBox.className = 'alert alert-danger small py-2 px-3 text-center rounded-3 shadow-sm';
+                        alertBox.innerHTML = `<i class="bi bi-x-circle-fill me-1"></i> Invalid email or password. (${5 - failedAttempts} attempts remaining)`;
+                        alertBox.classList.remove('d-none');
+                    }
+
+                    // Trigger card shake animation
+                    card.classList.remove('shake-card');
+                    void card.offsetWidth; // force DOM reflow
+                    card.classList.add('shake-card');
+
+                    passInput.value = '';
+                    passInput.focus();
+
+                    submitBtn.disabled = false;
+                    btnText.textContent = 'Sign In to Dashboard';
+                }
+            } catch (err) {
+                console.error("Supabase login verification error:", err);
+                alertBox.className = 'alert alert-danger small py-2 px-3 text-center rounded-3 shadow-sm';
+                alertBox.textContent = err.message || 'Authentication error with Supabase. Please check your credentials.';
+                alertBox.classList.remove('d-none');
+                submitBtn.disabled = false;
+                btnText.textContent = 'Sign In to Dashboard';
+            }
+        });
+    </script>
+</body>
+</html>

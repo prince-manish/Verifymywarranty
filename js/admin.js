@@ -1,0 +1,1943 @@
+/**
+ * VerifyMyWarranty / Foxzen - Comprehensive Admin Dashboard Logic
+ * Features:
+ * 1. Products Management (Add, Edit, Delete, Catalog table)
+ * 2. User & Warranty Management (Add, Edit, Delete, Search)
+ * 3. Product Dropdown with Auto-Fill in Add User modal
+ * 4. Expiry Notifications (Today, In 2 Days, In 4 Days) with navbar badge
+ * 5. Dedicated 1-Click WhatsApp & Telegram renewal reminders
+ * 6. Post-save confirmation with pre-formatted message & Copy to Clipboard
+ */
+
+// Global State
+let allWarranties = [];
+let allProducts = [];
+let parsedCSVRecords = [];
+let currentNotifFilter = "all";
+
+// Modal Instances
+let warrantyModalInstance = null;
+let productModalInstance = null;
+let postSaveModalInstance = null;
+let notificationModalInstance = null;
+let importModalInstance = null;
+
+document.addEventListener("DOMContentLoaded", function () {
+  // 1. Auth Guard
+  checkAuth();
+
+  // 2. Initialize Modals
+  warrantyModalInstance = new bootstrap.Modal(document.getElementById("warrantyModal"));
+  productModalInstance = new bootstrap.Modal(document.getElementById("productModal"));
+  postSaveModalInstance = new bootstrap.Modal(document.getElementById("postSaveModal"));
+  notificationModalInstance = new bootstrap.Modal(document.getElementById("notificationModal"));
+  importModalInstance = new bootstrap.Modal(document.getElementById("importModal"));
+
+  // 3. Update Environment Indicator
+  updateBackendBadge();
+
+  // 4. Load Data
+  loadProducts();
+  loadWarranties();
+
+  // 5. Attach Filter & Search Listeners
+  document.getElementById("adminTableSearch").addEventListener("input", filterAndRenderTable);
+  document.getElementById("statusFilter").addEventListener("change", filterAndRenderTable);
+  document.getElementById("productSearchInput").addEventListener("input", filterAndRenderProducts);
+
+  // 6. Attach Form Submission Listeners
+  document.getElementById("warrantyForm").addEventListener("submit", handleWarrantyFormSubmit);
+  document.getElementById("productForm").addEventListener("submit", handleProductFormSubmit);
+
+  // 7. Attach CSV File Input Listener
+  document.getElementById("csvFileInput").addEventListener("change", handleCSVFileSelection);
+});
+
+// ===========================================================================
+// AUTHENTICATION & NAVIGATION
+// ===========================================================================
+
+function checkAuth() {
+  const session =
+    sessionStorage.getItem(CONFIG.ADMIN_SESSION_KEY) ||
+    localStorage.getItem(CONFIG.ADMIN_SESSION_KEY);
+  if (session !== "authenticated") {
+    window.location.href = "login.html";
+  }
+}
+
+window.logoutAdmin = function () {
+  sessionStorage.removeItem(CONFIG.ADMIN_SESSION_KEY);
+  localStorage.removeItem(CONFIG.ADMIN_SESSION_KEY);
+  window.location.href = "login.html";
+};
+
+window.switchAdminTab = function (tab) {
+  const usersSec = document.getElementById("viewUsersSection");
+  const prodsSec = document.getElementById("viewProductsSection");
+  const revSec = document.getElementById("viewRevenueSection");
+  const tabUsersBtn = document.getElementById("tabUsersBtn");
+  const tabProdsBtn = document.getElementById("tabProductsBtn");
+  const tabRevBtn = document.getElementById("tabRevenueBtn");
+
+  [usersSec, prodsSec, revSec].forEach((el) => el && el.classList.add("d-none"));
+  [tabUsersBtn, tabProdsBtn, tabRevBtn].forEach((btn) => btn && btn.classList.remove("active"));
+
+  if (tab === "products") {
+    prodsSec.classList.remove("d-none");
+    tabProdsBtn.classList.add("active");
+  } else if (tab === "revenue") {
+    revSec.classList.remove("d-none");
+    tabRevBtn.classList.add("active");
+    if (typeof window.renderRevenueDashboard === "function") {
+      window.renderRevenueDashboard();
+    }
+  } else {
+    usersSec.classList.remove("d-none");
+    tabUsersBtn.classList.add("active");
+  }
+};
+
+function updateBackendBadge() {
+  const badge = document.getElementById("adminEnvBadge");
+  if (!badge) return;
+
+  if (CONFIG.isConfigured()) {
+    badge.className = "badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill";
+    badge.innerHTML = '<i class="bi bi-cloud-check-fill me-1"></i> Supabase Live DB';
+  } else {
+    badge.className = "badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2 rounded-pill";
+    badge.innerHTML = '<i class="bi bi-database-fill me-1"></i> Demo Local DB';
+  }
+}
+
+// ===========================================================================
+// PRODUCTS CATALOG MANAGEMENT
+// ===========================================================================
+
+async function loadProducts() {
+  const tbody = document.getElementById("productsTableBody");
+  tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-success me-2"></div>Loading products...</td></tr>`;
+
+  try {
+    const { data } = await window.warrantyService.getAllProducts();
+    allProducts = data || [];
+    populateProductDropdown(allProducts);
+    filterAndRenderProducts();
+  } catch (err) {
+    console.error("Error loading products:", err);
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">Failed to load products.</td></tr>`;
+  }
+}
+
+function populateProductDropdown(products) {
+  const select = document.getElementById("formProductSelect");
+  select.innerHTML = '<option value="">-- Choose from Product Catalog --</option>';
+
+  products.forEach((p) => {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    opt.setAttribute("data-name", p.name);
+    opt.setAttribute("data-warranty", p.default_warranty_months || 12);
+    opt.setAttribute("data-validity", p.default_validity_months || 12);
+    opt.setAttribute("data-type", p.duration_type || "month");
+    opt.setAttribute("data-amount", (p.default_amount !== undefined && p.default_amount !== null) ? p.default_amount : 0);
+    select.appendChild(opt);
+  });
+
+  // Custom option
+  const customOpt = document.createElement("option");
+  customOpt.value = "custom";
+  customOpt.textContent = "+ Custom / Other Product";
+  select.appendChild(customOpt);
+}
+
+window.onProductSelectChange = function () {
+  const select = document.getElementById("formProductSelect");
+  const selectedOpt = select.options[select.selectedIndex];
+  if (!selectedOpt || !selectedOpt.value) return;
+
+  if (selectedOpt.value === "custom") {
+    document.getElementById("formProductName").value = "";
+    document.getElementById("formProductName").focus();
+    return;
+  }
+
+  const name = selectedOpt.getAttribute("data-name");
+  const warranty = selectedOpt.getAttribute("data-warranty");
+  const validity = selectedOpt.getAttribute("data-validity");
+  const type = selectedOpt.getAttribute("data-type");
+  const amount = selectedOpt.getAttribute("data-amount");
+
+  if (name) document.getElementById("formProductName").value = name;
+  if (warranty) document.getElementById("formWarrantyMonths").value = warranty;
+  if (validity) document.getElementById("formValidityMonths").value = validity;
+  if (type) document.getElementById("formDurationType").value = type;
+  if (amount !== null && amount !== undefined && amount !== "") {
+    document.getElementById("formAmount").value = amount;
+  }
+};
+
+window.filterProductDropdownOptions = function (query) {
+  const q = (query || "").toLowerCase().trim();
+  const select = document.getElementById("formProductSelect");
+  const options = select.querySelectorAll("option");
+
+  let matchCount = 0;
+  let firstMatch = null;
+
+  options.forEach((opt) => {
+    if (!opt.value) {
+      opt.style.display = "";
+      return;
+    }
+    if (opt.value === "custom") {
+      opt.style.display = "";
+      return;
+    }
+    const text = opt.textContent.toLowerCase();
+    if (text.includes(q)) {
+      opt.style.display = "";
+      matchCount++;
+      if (!firstMatch) firstMatch = opt;
+    } else {
+      opt.style.display = "none";
+    }
+  });
+
+  // If exact match or only one match when user typed something, select it
+  if (q && matchCount === 1 && firstMatch) {
+    select.value = firstMatch.value;
+    window.onProductSelectChange();
+  }
+};
+
+function filterAndRenderProducts() {
+  const query = document.getElementById("productSearchInput").value.toLowerCase().trim();
+  const tbody = document.getElementById("productsTableBody");
+  const emptyState = document.getElementById("emptyProductState");
+  const countBadge = document.getElementById("productsCountBadge");
+
+  const filtered = allProducts.filter((p) => {
+    if (!query) return true;
+    return (
+      (p.name || "").toLowerCase().includes(query) ||
+      (p.description || "").toLowerCase().includes(query)
+    );
+  });
+
+  if (countBadge) {
+    countBadge.textContent = `${filtered.length} of ${allProducts.length} Products`;
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = "";
+    emptyState.classList.remove("d-none");
+    return;
+  }
+
+  emptyState.classList.add("d-none");
+  let html = "";
+  filtered.forEach((p) => {
+    html += `
+      <tr>
+        <td class="fw-bold text-dark">
+          <i class="bi bi-box-seam me-2 text-primary"></i>${escapeHtml(p.name)}
+        </td>
+        <td>
+          <span class="badge bg-light text-dark border">
+            ${p.default_warranty_months || 12} ${p.duration_type || "months"}
+          </span>
+        </td>
+        <td>
+          <span class="badge bg-light text-dark border">
+            ${p.default_validity_months || 12} ${p.duration_type || "months"}
+          </span>
+        </td>
+        <td>
+          <span class="fw-bold text-dark">
+            ${(p.default_amount !== undefined && p.default_amount !== null && p.default_amount !== "") ? `₹${parseFloat(p.default_amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `<span class="text-muted fw-normal">₹0.00</span>`}
+          </span>
+        </td>
+        <td><small class="text-muted">${escapeHtml(p.description || "N/A")}</small></td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-primary" title="Edit" onclick="openEditProductModal('${p.id}')">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-outline-danger" title="Delete" onclick="deleteProductRecord('${p.id}')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+  tbody.innerHTML = html;
+}
+
+window.openAddProductModal = function () {
+  document.getElementById("productModalTitle").textContent = "Add New Product";
+  document.getElementById("editProductId").value = "";
+  document.getElementById("productForm").reset();
+  document.getElementById("productFormWarranty").value = "12";
+  document.getElementById("productFormValidity").value = "12";
+  document.getElementById("productFormDurationType").value = "month";
+  document.getElementById("productFormAmount").value = "";
+  productModalInstance.show();
+};
+
+window.openEditProductModal = function (id) {
+  const p = allProducts.find((item) => item.id === id);
+  if (!p) return;
+
+  document.getElementById("productModalTitle").textContent = "Edit Product";
+  document.getElementById("editProductId").value = p.id;
+  document.getElementById("productFormName").value = p.name || "";
+  document.getElementById("productFormWarranty").value = p.default_warranty_months || 12;
+  document.getElementById("productFormValidity").value = p.default_validity_months || 12;
+  document.getElementById("productFormDurationType").value = p.duration_type || "month";
+  document.getElementById("productFormAmount").value = (p.default_amount !== undefined && p.default_amount !== null) ? p.default_amount : "";
+  document.getElementById("productFormDescription").value = p.description || "";
+  productModalInstance.show();
+};
+
+async function handleProductFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById("editProductId").value;
+  const saveBtn = document.getElementById("saveProductBtn");
+
+  const rawAmt = document.getElementById("productFormAmount").value.trim();
+  const amtVal = rawAmt !== "" ? parseFloat(rawAmt) : 0;
+
+  const productData = {
+    name: document.getElementById("productFormName").value.trim(),
+    default_warranty_months: parseInt(document.getElementById("productFormWarranty").value, 10),
+    default_validity_months: parseInt(document.getElementById("productFormValidity").value, 10),
+    default_amount: isNaN(amtVal) ? 0 : amtVal,
+    duration_type: document.getElementById("productFormDurationType").value,
+    description: document.getElementById("productFormDescription").value.trim()
+  };
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving...`;
+
+  try {
+    if (id) {
+      await window.warrantyService.updateProduct(id, productData);
+    } else {
+      await window.warrantyService.createProduct(productData);
+    }
+    productModalInstance.hide();
+    await loadProducts();
+  } catch (err) {
+    console.error("Product save error:", err);
+    alert("Error saving product: " + err.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Save Product`;
+  }
+}
+
+window.deleteProductRecord = async function (id) {
+  const p = allProducts.find((item) => item.id === id);
+  if (!p) return;
+
+  if (!confirm(`Are you sure you want to delete product "${p.name}"?`)) {
+    return;
+  }
+
+  try {
+    await window.warrantyService.deleteProduct(id);
+    await loadProducts();
+  } catch (err) {
+    console.error("Delete product error:", err);
+    alert("Failed to delete product: " + err.message);
+  }
+};
+
+// ===========================================================================
+// USERS & LICENSES MANAGEMENT
+// ===========================================================================
+
+async function loadWarranties() {
+  const tbody = document.getElementById("warrantiesTableBody");
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Fetching user records...</td></tr>`;
+
+  try {
+    const { data } = await window.warrantyService.getAllWarranties();
+    allWarranties = data || [];
+    updateStatistics(allWarranties);
+    updateNotificationsBadge(allWarranties);
+    filterAndRenderTable();
+    if (typeof window.renderRevenueDashboard === "function") {
+      window.renderRevenueDashboard();
+    }
+  } catch (err) {
+    console.error("Load warranties error:", err);
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-danger">Unexpected error loading records.</td></tr>`;
+  }
+}
+
+function updateStatistics(records) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let total = records.length;
+  let active = 0;
+  let expired = 0;
+  let expiring30Days = 0;
+
+  records.forEach((r) => {
+    const pDate = new Date(r.purchase_date);
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+
+    if (r.status === "void") {
+      // void
+    } else if (today <= expiry) {
+      active++;
+      if (diffDays <= 30 && diffDays >= 0) {
+        expiring30Days++;
+      }
+    } else {
+      expired++;
+    }
+  });
+
+  document.getElementById("statTotal").textContent = total;
+  document.getElementById("statActive").textContent = active;
+  document.getElementById("statExpired").textContent = expired;
+  document.getElementById("statExpiring").textContent = expiring30Days;
+}
+
+// ===========================================================================
+// NOTIFICATION SYSTEM (Today, 2 Days, 4 Days)
+// ===========================================================================
+
+function getExpiryBuckets(records) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const buckets = {
+    today: [],
+    in2Days: [],
+    in4Days: [],
+    allExpired: []
+  };
+
+  records.forEach((r) => {
+    if (r.status === "void") return;
+
+    const pDate = new Date(r.purchase_date);
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.round((expiry - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      buckets.today.push({ record: r, expiry, diffDays });
+    } else if (diffDays > 0 && diffDays <= 2) {
+      buckets.in2Days.push({ record: r, expiry, diffDays });
+    } else if (diffDays > 2 && diffDays <= 4) {
+      buckets.in4Days.push({ record: r, expiry, diffDays });
+    } else if (diffDays < 0) {
+      buckets.allExpired.push({ record: r, expiry, diffDays });
+    }
+  });
+
+  return buckets;
+}
+
+function updateNotificationsBadge(records) {
+  const buckets = getExpiryBuckets(records);
+  const urgentCount = buckets.today.length + buckets.in2Days.length + buckets.in4Days.length;
+
+  const badge = document.getElementById("notificationBadge");
+  badge.textContent = urgentCount;
+  badge.style.display = urgentCount > 0 ? "inline-block" : "none";
+
+  document.getElementById("notifCountAll").textContent = urgentCount + buckets.allExpired.length;
+  document.getElementById("notifCountToday").textContent = buckets.today.length;
+  document.getElementById("notifCount2Days").textContent = buckets.in2Days.length;
+  document.getElementById("notifCount4Days").textContent = buckets.in4Days.length;
+}
+
+window.openNotificationModal = function () {
+  filterNotifications(currentNotifFilter || "all");
+  notificationModalInstance.show();
+};
+
+window.filterNotifications = function (filterType) {
+  currentNotifFilter = filterType;
+  const pills = document.querySelectorAll("#notificationPills .nav-link");
+  pills.forEach((p) => p.classList.remove("active"));
+
+  const buckets = getExpiryBuckets(allWarranties);
+  let itemsToRender = [];
+
+  if (filterType === "today") {
+    itemsToRender = buckets.today;
+  } else if (filterType === "2days") {
+    itemsToRender = buckets.in2Days;
+  } else if (filterType === "4days") {
+    itemsToRender = buckets.in4Days;
+  } else {
+    // all
+    itemsToRender = [...buckets.today, ...buckets.in2Days, ...buckets.in4Days, ...buckets.allExpired];
+  }
+
+  const container = document.getElementById("notificationListContainer");
+  if (itemsToRender.length === 0) {
+    container.innerHTML = `
+      <div class="text-center py-5 text-muted">
+        <i class="bi bi-bell-slash fs-1 d-block mb-2 text-secondary"></i>
+        <h6 class="fw-bold">No Expiry Alerts</h6>
+        <p class="small mb-0">No users match this notification category.</p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = "";
+  itemsToRender.forEach((item) => {
+    const r = item.record;
+    let badgeClass = "bg-warning-subtle text-warning border-warning";
+    let badgeText = `Expiring in ${item.diffDays} days`;
+
+    if (item.diffDays === 0) {
+      badgeClass = "bg-danger text-white";
+      badgeText = "EXPIRES TODAY!";
+    } else if (item.diffDays < 0) {
+      badgeClass = "bg-danger-subtle text-danger border-danger";
+      badgeText = `Expired ${Math.abs(item.diffDays)} days ago`;
+    }
+
+    const waLink = generateWhatsAppUrl(r);
+    const tgLink = generateTelegramUrl(r);
+
+    html += `
+      <div class="card border rounded-3 p-3 mb-2 shadow-sm bg-white">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div>
+            <h6 class="fw-bold mb-0 text-dark">${escapeHtml(r.customer_name)}</h6>
+            <small class="text-muted font-monospace">${escapeHtml(r.customer_mobile)}</small>
+          </div>
+          <span class="badge ${badgeClass} px-2 py-1">${badgeText}</span>
+        </div>
+        <div class="row g-2 small text-secondary mb-3">
+          <div class="col-sm-6">
+            <i class="bi bi-box-seam me-1"></i> ${escapeHtml(r.product_name)}
+          </div>
+          <div class="col-sm-6 font-monospace">
+            <i class="bi bi-upc me-1"></i> ${escapeHtml(r.serial_number)}
+          </div>
+        </div>
+        <div class="d-flex gap-2">
+          <a href="${waLink}" target="_blank" class="btn btn-whatsapp btn-sm rounded-pill px-3">
+            <i class="bi bi-whatsapp"></i> Send WhatsApp Reminder
+          </a>
+          <a href="${tgLink}" target="_blank" class="btn btn-telegram btn-sm rounded-pill px-3">
+            <i class="bi bi-telegram"></i> Telegram
+          </a>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+};
+
+// ===========================================================================
+// WHATSAPP & TELEGRAM RENEWAL LINKS
+// ===========================================================================
+
+function generateWhatsAppUrl(record) {
+  if (!record.customer_mobile || !record.customer_mobile.trim()) {
+    return "#";
+  }
+
+  const pDate = new Date(record.purchase_date);
+  const expiry = calculateExpiry(pDate, record.warranty_months, record.warranty_type || "month");
+  const expiryFormatted = formatDate(expiry);
+  const actFormatted = formatDate(pDate);
+
+  let phone = String(record.customer_mobile || "").trim();
+  phone = phone.replace(/[^0-9]/g, "");
+
+  if (phone.length === 10) {
+    phone = "91" + phone;
+  }
+
+  const greeting = (record.customer_name && record.customer_name !== "Customer")
+    ? `Hello ${record.customer_name},`
+    : `Hello,`;
+
+  const message = 
+`${greeting}
+
+Your service license for *${record.product_name}* is expiring on *${expiryFormatted}*.
+
+Product Name : ${record.product_name}
+activation date : ${actFormatted}
+Valid till date : ${expiryFormatted}
+Serial Number : ${record.serial_number}
+Notes : ${record.notes || "Renewal reminder"}
+
+Please renew your service to continue uninterrupted access.
+thanks for choose Foxzen`;
+
+  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
+function generateTelegramUrl(record) {
+  const pDate = new Date(record.purchase_date);
+  const expiry = calculateExpiry(pDate, record.warranty_months, record.warranty_type || "month");
+  const expiryFormatted = formatDate(expiry);
+  const actFormatted = formatDate(pDate);
+
+  const greeting = (record.customer_name && record.customer_name !== "Customer")
+    ? `Hello ${record.customer_name},`
+    : `Hello,`;
+
+  const message = 
+`${greeting}
+
+Your license for ${record.product_name} is expiring on ${expiryFormatted}.
+Activation: ${actFormatted}
+Valid Till: ${expiryFormatted}
+Serial: ${record.serial_number}
+
+Please renew your service to continue uninterrupted access.
+thanks for choose Foxzen`;
+
+  if (record.telegram_id && record.telegram_id.trim()) {
+    const cleanUser = record.telegram_id.replace(/^@/, "").trim();
+    return `https://t.me/${cleanUser}`;
+  }
+
+  return `https://t.me/share/url?url=&text=${encodeURIComponent(message)}`;
+}
+
+// ===========================================================================
+// USERS TABLE RENDERING & ACTIONS
+// ===========================================================================
+
+function filterAndRenderTable() {
+  const query = document.getElementById("adminTableSearch").value.toLowerCase().trim();
+  const statusFilter = document.getElementById("statusFilter").value;
+  const tbody = document.getElementById("warrantiesTableBody");
+  const emptyState = document.getElementById("emptyTableState");
+
+  const filtered = allWarranties.filter((item) => {
+    if (statusFilter !== "all" && item.status !== statusFilter) {
+      return false;
+    }
+
+    if (query) {
+      const matchProduct = (item.product_name || "").toLowerCase().includes(query);
+      const matchSerial = (item.serial_number || "").toLowerCase().includes(query);
+      const matchName = (item.customer_name || "").toLowerCase().includes(query);
+      const matchEmail = (item.customer_email || "").toLowerCase().includes(query);
+      const matchMobile = (item.customer_mobile || "").toLowerCase().includes(query);
+      return matchProduct || matchSerial || matchName || matchEmail || matchMobile;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = "";
+    emptyState.classList.remove("d-none");
+    return;
+  }
+
+  emptyState.classList.add("d-none");
+  let html = "";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  filtered.forEach((r) => {
+    const pDate = new Date(r.purchase_date);
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+    const isWActive = today <= expiry && r.status !== "void";
+
+    let badgeClass = "badge-status-active";
+    let statusLabel = "Active";
+    if (r.status === "void") {
+      badgeClass = "badge-status-void";
+      statusLabel = "Void";
+    } else if (!isWActive) {
+      badgeClass = "badge-status-expired";
+      statusLabel = "Expired";
+    }
+
+    const waLink = generateWhatsAppUrl(r);
+    const tgLink = generateTelegramUrl(r);
+
+    html += `
+      <tr>
+        <td>
+          <div class="fw-bold text-dark">${escapeHtml(r.product_name)}</div>
+          <small class="badge bg-light text-secondary border font-monospace mt-1">
+            <i class="bi bi-upc-scan me-1"></i>${escapeHtml(r.serial_number)}
+          </small>
+        </td>
+        <td>
+          <div class="fw-semibold">${escapeHtml(r.customer_name || "Customer")}</div>
+          ${r.customer_email ? `<small class="text-muted d-block"><i class="bi bi-envelope me-1"></i>${escapeHtml(r.customer_email)}</small>` : ""}
+          ${r.customer_mobile ? `<small class="text-muted font-monospace d-block"><i class="bi bi-phone me-1"></i>${escapeHtml(r.customer_mobile)}</small>` : ""}
+          ${r.telegram_id ? `<small class="text-info font-monospace d-block"><i class="bi bi-telegram me-1"></i>@${escapeHtml(r.telegram_id.replace(/^@/, ""))}</small>` : ""}
+        </td>
+        <td>${formatDate(pDate)}</td>
+        <td>
+          <div class="${isWActive ? "text-success fw-bold" : "text-danger fw-bold"}">
+            ${formatDate(expiry)}
+          </div>
+          <small class="text-muted">${r.warranty_months} ${r.warranty_type || "months"}</small>
+        </td>
+        <td>
+          <span class="fw-bold text-dark">
+            ${(r.amount !== undefined && r.amount !== null && r.amount !== "") ? `₹${parseFloat(r.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `<span class="text-muted fw-normal">₹0.00</span>`}
+          </span>
+        </td>
+        <td>
+          <span class="${badgeClass}">${statusLabel}</span>
+        </td>
+        <td>
+          <div class="d-flex gap-1">
+            ${r.customer_mobile ? `
+            <a href="${waLink}" target="_blank" class="btn btn-whatsapp btn-sm rounded-pill px-2 py-1" title="Send WhatsApp Renewal">
+              <i class="bi bi-whatsapp"></i>
+            </a>` : `
+            <button class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-1 opacity-50" title="No Mobile Number" disabled>
+              <i class="bi bi-whatsapp"></i>
+            </button>`}
+            ${r.telegram_id || r.customer_mobile ? `
+            <a href="${tgLink}" target="_blank" class="btn btn-telegram btn-sm rounded-pill px-2 py-1" title="Send Telegram Renewal">
+              <i class="bi bi-telegram"></i>
+            </a>` : `
+            <button class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-1 opacity-50" title="No Telegram or Mobile" disabled>
+              <i class="bi bi-telegram"></i>
+            </button>`}
+          </div>
+        </td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-secondary" title="View Certificate" onclick="openAdminCertificateModal('${r.id}')">
+              <i class="bi bi-award"></i>
+            </button>
+            <button class="btn btn-outline-primary" title="Edit User" onclick="openEditModal('${r.id}')">
+              <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-outline-danger" title="Delete User" onclick="deleteWarrantyRecord('${r.id}')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+}
+
+// ===========================================================================
+// ADD & EDIT USER FORM HANDLING & POST-SAVE MODAL
+// ===========================================================================
+
+window.openAddModal = function () {
+  document.getElementById("warrantyModalTitle").textContent = "Add New User License";
+  document.getElementById("editRecordId").value = "";
+  document.getElementById("warrantyForm").reset();
+
+  document.getElementById("formPurchaseDate").value = new Date().toISOString().split("T")[0];
+  document.getElementById("formWarrantyMonths").value = "12";
+  document.getElementById("formValidityMonths").value = "12";
+  document.getElementById("formDurationType").value = "month";
+  document.getElementById("formAmount").value = "";
+  document.getElementById("formStatus").value = "active";
+  document.getElementById("formProductSelect").value = "";
+  const filterInput = document.getElementById("dropdownProductFilter");
+  if (filterInput) {
+    filterInput.value = "";
+    filterProductDropdownOptions("");
+  }
+
+  generateRandomSerial();
+  warrantyModalInstance.show();
+};
+
+window.generateRandomSerial = function () {
+  const randomNum = Math.floor(1000 + Math.random() * 9000);
+  document.getElementById("formSerialNumber").value = `FXZ-2026-${randomNum}`;
+};
+
+window.openEditModal = function (id) {
+  const item = allWarranties.find((w) => w.id === id);
+  if (!item) return;
+
+  document.getElementById("warrantyModalTitle").textContent = "Edit User License";
+  document.getElementById("editRecordId").value = item.id;
+
+  // Try matching product in dropdown
+  const prodSelect = document.getElementById("formProductSelect");
+  let matched = false;
+  for (let i = 0; i < prodSelect.options.length; i++) {
+    if (prodSelect.options[i].text === item.product_name) {
+      prodSelect.selectedIndex = i;
+      matched = true;
+      break;
+    }
+  }
+  if (!matched) prodSelect.value = "custom";
+
+  document.getElementById("formProductName").value = item.product_name || "";
+  document.getElementById("formSerialNumber").value = item.serial_number || "";
+  document.getElementById("formCustomerName").value = item.customer_name || "";
+  document.getElementById("formCustomerEmail").value = item.customer_email || "";
+  document.getElementById("formCustomerMobile").value = item.customer_mobile || "";
+  document.getElementById("formCustomerTelegram").value = item.telegram_id || "";
+  document.getElementById("formPurchaseDate").value = item.purchase_date || "";
+  document.getElementById("formWarrantyMonths").value = item.warranty_months || 12;
+  document.getElementById("formValidityMonths").value = item.validity_months || 12;
+  document.getElementById("formDurationType").value = item.warranty_type || "month";
+  document.getElementById("formAmount").value = (item.amount !== undefined && item.amount !== null) ? item.amount : "";
+  document.getElementById("formStatus").value = item.status || "active";
+  document.getElementById("formInvoiceNo").value = item.invoice_no || "";
+  document.getElementById("formNotes").value = item.notes || "";
+
+  warrantyModalInstance.show();
+};
+
+async function handleWarrantyFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById("editRecordId").value;
+  const saveBtn = document.getElementById("saveWarrantyBtn");
+
+  const customerName = document.getElementById("formCustomerName").value.trim();
+  const customerEmail = document.getElementById("formCustomerEmail").value.trim().toLowerCase();
+  const customerMobile = document.getElementById("formCustomerMobile").value.trim();
+  const customerTelegram = document.getElementById("formCustomerTelegram").value.trim();
+
+  // Validate: At least one contact method must be provided!
+  if (!customerEmail && !customerMobile && !customerTelegram) {
+    alert("Please provide at least one contact method: Customer Email, Mobile (WhatsApp), or Telegram Username / ID.");
+    document.getElementById("formCustomerMobile").focus();
+    return;
+  }
+
+  const rawAmount = document.getElementById("formAmount").value.trim();
+  const amountVal = rawAmount !== "" ? parseFloat(rawAmount) : 0;
+
+  const recordData = {
+    product_name: document.getElementById("formProductName").value.trim(),
+    serial_number: document.getElementById("formSerialNumber").value.trim().toUpperCase(),
+    customer_name: customerName || "Customer",
+    customer_email: customerEmail,
+    customer_mobile: customerMobile,
+    telegram_id: customerTelegram,
+    purchase_date: document.getElementById("formPurchaseDate").value,
+    warranty_months: parseInt(document.getElementById("formWarrantyMonths").value, 10),
+    warranty_type: document.getElementById("formDurationType").value,
+    validity_months: parseInt(document.getElementById("formValidityMonths").value, 10),
+    validity_type: document.getElementById("formDurationType").value,
+    amount: isNaN(amountVal) ? 0 : amountVal,
+    status: document.getElementById("formStatus").value,
+    invoice_no: document.getElementById("formInvoiceNo").value.trim(),
+    notes: document.getElementById("formNotes").value.trim()
+  };
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving...`;
+
+  try {
+    let savedRecord = null;
+    if (id) {
+      const res = await window.warrantyService.updateWarranty(id, recordData);
+      if (res.error) throw res.error;
+      savedRecord = res.data || recordData;
+    } else {
+      const res = await window.warrantyService.createWarranty(recordData);
+      if (res.error) throw res.error;
+      savedRecord = res.data || recordData;
+    }
+
+    warrantyModalInstance.hide();
+    await loadWarranties();
+
+    // Show Post-Save Output Confirmation Modal
+    showPostSaveOutput(savedRecord);
+  } catch (err) {
+    console.error("Save error:", err);
+    alert("Error saving record: " + (err.message || "Please check that Serial Number is unique."));
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Save & Generate Message`;
+  }
+}
+
+/**
+ * Display formatted output confirmation as specifically requested:
+ * Product Name : ...
+ * activation date : ...
+ * Valid till date : ...
+ * Notes : ...
+ * thanks for choose Foxzen
+ */
+function showPostSaveOutput(record) {
+  const pDate = new Date(record.purchase_date);
+  const expiry = calculateExpiry(pDate, record.warranty_months, record.warranty_type || "month");
+  const actFormatted = formatDate(pDate);
+  const expiryFormatted = formatDate(expiry);
+  const notesText = record.notes || "Standard License";
+
+  const outputFormattedText = 
+`Product Name : ${record.product_name}
+activation date : ${actFormatted}
+Valid till date : ${expiryFormatted}
+Notes : ${notesText}
+thanks for choose Foxzen`;
+
+  document.getElementById("postSaveOutputText").textContent = outputFormattedText;
+
+  // Configure WhatsApp & Telegram links
+  const waBtn = document.getElementById("postSaveWhatsappBtn");
+  const tgBtn = document.getElementById("postSaveTelegramBtn");
+
+  if (record.customer_mobile && record.customer_mobile.trim()) {
+    waBtn.href = generateWhatsAppUrl(record);
+    waBtn.classList.remove("disabled", "opacity-50");
+  } else {
+    waBtn.href = "javascript:void(0)";
+    waBtn.classList.add("disabled", "opacity-50");
+  }
+
+  if ((record.telegram_id && record.telegram_id.trim()) || (record.customer_mobile && record.customer_mobile.trim())) {
+    tgBtn.href = generateTelegramUrl(record);
+    tgBtn.classList.remove("disabled", "opacity-50");
+  } else {
+    tgBtn.href = "javascript:void(0)";
+    tgBtn.classList.add("disabled", "opacity-50");
+  }
+
+  // Reset copy button state
+  document.getElementById("copyBtnLabel").textContent = "Copy Message";
+  document.getElementById("copyOutputBtn").classList.remove("btn-success");
+  document.getElementById("copyOutputBtn").classList.add("btn-primary");
+
+  postSaveModalInstance.show();
+}
+
+window.copyPostSaveOutput = function () {
+  const text = document.getElementById("postSaveOutputText").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("copyOutputBtn");
+    const label = document.getElementById("copyBtnLabel");
+    btn.classList.remove("btn-primary");
+    btn.classList.add("btn-success");
+    label.innerHTML = '<i class="bi bi-check2"></i> Copied to Clipboard!';
+
+    setTimeout(() => {
+      btn.classList.remove("btn-success");
+      btn.classList.add("btn-primary");
+      label.textContent = "Copy Message";
+    }, 2500);
+  }).catch((err) => {
+    alert("Could not copy automatically. Please select the text and press Ctrl+C.");
+  });
+};
+
+window.deleteWarrantyRecord = async function (id) {
+  const item = allWarranties.find((w) => w.id === id);
+  const name = item ? `${item.product_name} (${item.customer_name})` : "this record";
+
+  if (!confirm(`Are you sure you want to delete ${name}?`)) {
+    return;
+  }
+
+  try {
+    await window.warrantyService.deleteWarranty(id);
+    await loadWarranties();
+  } catch (err) {
+    console.error("Delete error:", err);
+    alert("Failed to delete record: " + err.message);
+  }
+};
+
+// ===========================================================================
+// CSV IMPORT & EXPORT
+// ===========================================================================
+
+window.exportToCSV = function () {
+  if (allWarranties.length === 0) {
+    alert("No records to export.");
+    return;
+  }
+
+  const headers = [
+    "Product Name",
+    "Serial Number",
+    "Customer Name",
+    "Customer Email",
+    "Customer Mobile",
+    "Telegram ID",
+    "Purchase Date",
+    "Warranty Months",
+    "Amount",
+    "Status",
+    "Invoice No",
+    "Notes"
+  ];
+
+  const rows = allWarranties.map((w) => [
+    `"${(w.product_name || "").replace(/"/g, '""')}"`,
+    `"${(w.serial_number || "").replace(/"/g, '""')}"`,
+    `"${(w.customer_name || "").replace(/"/g, '""')}"`,
+    `"${(w.customer_email || "").replace(/"/g, '""')}"`,
+    `"${(w.customer_mobile || "").replace(/"/g, '""')}"`,
+    `"${(w.telegram_id || "").replace(/"/g, '""')}"`,
+    `"${w.purchase_date || ""}"`,
+    w.warranty_months || 12,
+    parseFloat(w.amount || 0).toFixed(2),
+    `"${w.status || "active"}"`,
+    `"${(w.invoice_no || "").replace(/"/g, '""')}"`,
+    `"${(w.notes || "").replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `foxzen_users_${new Date().toISOString().split("T")[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+function handleCSVFileSelection(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function (evt) {
+    try {
+      const text = evt.target.result;
+      const records = parseCSV(text);
+      parsedCSVRecords = records;
+
+      if (records.length === 0) {
+        alert("No valid rows found in CSV.");
+        return;
+      }
+
+      document.getElementById("csvRowCount").textContent = records.length;
+      const tbody = document.querySelector("#csvPreviewTable tbody");
+      tbody.innerHTML = records
+        .slice(0, 5)
+        .map(
+          (r) => `
+        <tr>
+          <td>${escapeHtml(r.product_name)}</td>
+          <td>${escapeHtml(r.serial_number)}</td>
+          <td>${escapeHtml(r.customer_name)}</td>
+          <td>${escapeHtml(r.customer_email)}</td>
+          <td>${escapeHtml(r.customer_mobile)}</td>
+          <td>${escapeHtml(r.purchase_date)}</td>
+        </tr>
+      `
+        )
+        .join("");
+
+      document.getElementById("csvPreviewSection").classList.remove("d-none");
+      document.getElementById("confirmImportBtn").disabled = false;
+    } catch (err) {
+      alert("Error reading CSV: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lines.length < 2) return [];
+
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
+  const records = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const rawCols = lines[i].match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || lines[i].split(",");
+    const cols = rawCols.map((c) => c.trim().replace(/^"|"$/g, "").replace(/""/g, '"'));
+
+    if (cols.length >= 4) {
+      const row = {};
+      headers.forEach((h, idx) => {
+        row[h] = cols[idx] !== undefined ? cols[idx] : "";
+      });
+
+      const rawAmount = row.amount || row.price || row.fee || "0";
+      const amountVal = parseFloat(rawAmount) || 0;
+
+      records.push({
+        product_name: row.product_name || row.product || "Foxzen Service",
+        serial_number: (row.serial_number || row.serial || "FXZ-" + Date.now()).toUpperCase(),
+        customer_name: row.customer_name || row.name || "Customer",
+        customer_email: (row.customer_email || row.email || "support@foxzen.com").toLowerCase(),
+        customer_mobile: row.customer_mobile || row.mobile || row.phone || "0000000000",
+        telegram_id: row.telegram_id || row.telegram || "",
+        purchase_date: row.purchase_date || new Date().toISOString().split("T")[0],
+        warranty_months: parseInt(row.warranty_months || row.months || "12", 10),
+        warranty_type: "month",
+        validity_months: parseInt(row.validity_months || row.warranty_months || "12", 10),
+        validity_type: "month",
+        amount: amountVal,
+        status: row.status || "active",
+        invoice_no: row.invoice_no || row.invoice || "",
+        notes: row.notes || "Imported via CSV"
+      });
+    }
+  }
+
+  return records;
+}
+
+window.executeCSVImport = async function () {
+  if (parsedCSVRecords.length === 0) return;
+
+  const btn = document.getElementById("confirmImportBtn");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Importing...`;
+
+  try {
+    const { count, error } = await window.warrantyService.bulkImport(parsedCSVRecords);
+    if (error) throw error;
+
+    alert(`Successfully imported ${count} users!`);
+    importModalInstance.hide();
+    document.getElementById("csvFileInput").value = "";
+    document.getElementById("csvPreviewSection").classList.add("d-none");
+    await loadWarranties();
+  } catch (err) {
+    alert("Import failed: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="bi bi-upload me-1"></i> Import Records`;
+  }
+};
+
+window.downloadSampleCSV = function () {
+  const content =
+    "product_name,serial_number,customer_name,customer_email,customer_mobile,purchase_date,warranty_months,amount,status,invoice_no\r\n" +
+    '"Foxzen License Pro 1-Year","FXZ-2026-9921","John Doe","john@example.com","+91 9876543210","2026-06-15",12,1499.00,"active","INV-001"\r\n' +
+    '"MacBook Pro 16","VMW-MBP-9921","Sarah Connor","sarah@example.com","+1 555-901-4433","2026-08-01",24,4999.00,"active","INV-103"\r\n';
+
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "foxzen_users_sample.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// ===========================================================================
+// CERTIFICATE MODAL
+// ===========================================================================
+
+window.openAdminCertificateModal = function (id) {
+  const product = allWarranties.find((w) => w.id === id);
+  if (!product) return;
+
+  const pDate = new Date(product.purchase_date);
+  const wExp = calculateExpiry(pDate, product.warranty_months, product.warranty_type || "month");
+  const isWActive = new Date() <= wExp && product.status !== "void";
+
+  const certHtml = `
+    <div id="printableCertificate" class="certificate-box text-center p-4">
+      <div class="certificate-watermark">VERIFIED</div>
+      
+      <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+        <div class="text-start">
+          <h4 class="fw-bold text-primary mb-0"><i class="bi bi-shield-check"></i> Foxzen Warranty</h4>
+          <small class="text-muted">Official Verification Certificate</small>
+        </div>
+        <div class="text-end">
+          <span class="badge ${isWActive ? "bg-success" : "bg-danger"} fs-6 px-3 py-2">
+            ${isWActive ? "LICENSE ACTIVE" : "LICENSE EXPIRED"}
+          </span>
+        </div>
+      </div>
+
+      <h3 class="fw-bold mb-1">${escapeHtml(product.product_name)}</h3>
+      <p class="text-muted mb-4 font-monospace">Serial Number: <strong>${escapeHtml(
+        product.serial_number
+      )}</strong></p>
+
+      <div class="row text-start g-3 mb-4 bg-light p-3 rounded">
+        <div class="col-6">
+          <small class="text-muted d-block">Customer Name</small>
+          <strong>${escapeHtml(product.customer_name || "Valued Customer")}</strong>
+        </div>
+        <div class="col-6">
+          <small class="text-muted d-block">Registered Email</small>
+          <strong>${escapeHtml(product.customer_email || "N/A")}</strong>
+        </div>
+        <div class="col-6">
+          <small class="text-muted d-block">Registered Phone</small>
+          <strong>${escapeHtml(product.customer_mobile || "N/A")}</strong>
+        </div>
+        <div class="col-6">
+          <small class="text-muted d-block">Activation Date</small>
+          <strong>${formatDate(pDate)}</strong>
+        </div>
+        <div class="col-6">
+          <small class="text-muted d-block">Valid Till Date</small>
+          <strong class="${isWActive ? "text-success" : "text-danger"}">${formatDate(wExp)}</strong>
+        </div>
+        <div class="col-6">
+          <small class="text-muted d-block">Invoice / Reference</small>
+          <strong>${escapeHtml(product.invoice_no || "N/A")}</strong>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center pt-3 border-top text-muted small">
+        <span>Verified via Foxzen Portal</span>
+        <span>Certificate ID: ${product.id || "FXZ-" + Date.now()}</span>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("adminCertificateModalBody").innerHTML = certHtml;
+  const modal = new bootstrap.Modal(document.getElementById("adminCertificateModal"));
+  modal.show();
+};
+
+// ===========================================================================
+// UTILITY HELPERS
+// ===========================================================================
+
+function calculateExpiry(startDate, duration, type) {
+  const expiry = new Date(startDate);
+  const dur = parseInt(duration, 10) || 0;
+  if (type === "day") {
+    expiry.setDate(expiry.getDate() + dur);
+  } else {
+    expiry.setMonth(expiry.getMonth() + dur);
+  }
+  return expiry;
+}
+
+function formatDate(date) {
+  if (!(date instanceof Date) || isNaN(date)) return "N/A";
+  const options = { day: "2-digit", month: "short", year: "numeric" };
+  return date.toLocaleDateString("en-US", options);
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// ===========================================================================
+// REVENUE DASHBOARD LOGIC
+// ===========================================================================
+
+let currentRevenuePeriod = "all";
+
+window.setRevenuePeriod = function (period) {
+  currentRevenuePeriod = period;
+  const btns = ["revPeriodAll", "revPeriodMonth", "revPeriodToday"];
+  btns.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("active");
+  });
+
+  if (period === "month") {
+    document.getElementById("revPeriodMonth")?.classList.add("active");
+  } else if (period === "today") {
+    document.getElementById("revPeriodToday")?.classList.add("active");
+  } else {
+    document.getElementById("revPeriodAll")?.classList.add("active");
+  }
+
+  renderRevenueDashboard();
+};
+
+window.renderRevenueDashboard = function () {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const todayStr = now.toISOString().split("T")[0];
+
+  let totalRevenue = 0;
+  let totalCount = 0;
+  let monthRevenue = 0;
+  let monthCount = 0;
+  let todayRevenue = 0;
+  let todayCount = 0;
+
+  let activeRevenue = 0;
+  let activeCount = 0;
+  let expiredRevenue = 0;
+  let expiredCount = 0;
+  let voidRevenue = 0;
+  let voidCount = 0;
+
+  const productMap = {};
+
+  allWarranties.forEach((r) => {
+    const amt = parseFloat(r.amount) || 0;
+    totalRevenue += amt;
+    totalCount++;
+
+    // Check date for month & today
+    const pDate = new Date(r.purchase_date);
+    if (!isNaN(pDate)) {
+      if (pDate.getFullYear() === currentYear && pDate.getMonth() === currentMonth) {
+        monthRevenue += amt;
+        monthCount++;
+      }
+      const pDateStr = r.purchase_date ? r.purchase_date.split("T")[0] : "";
+      if (pDateStr === todayStr) {
+        todayRevenue += amt;
+        todayCount++;
+      }
+    }
+
+    // Status breakdown
+    const isVoid = r.status === "void";
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+    const todayCheck = new Date();
+    todayCheck.setHours(0, 0, 0, 0);
+    const isWActive = !isVoid && todayCheck <= expiry && r.status !== "expired";
+
+    if (isVoid) {
+      voidRevenue += amt;
+      voidCount++;
+    } else if (isWActive) {
+      activeRevenue += amt;
+      activeCount++;
+    } else {
+      expiredRevenue += amt;
+      expiredCount++;
+    }
+
+    // Product breakdown
+    const prodName = r.product_name || "Custom License";
+    if (!productMap[prodName]) {
+      productMap[prodName] = {
+        name: prodName,
+        totalRevenue: 0,
+        licenseCount: 0
+      };
+    }
+    productMap[prodName].totalRevenue += amt;
+    productMap[prodName].licenseCount++;
+  });
+
+  const avgRevenue = totalCount > 0 ? totalRevenue / totalCount : 0;
+
+  const formatINR = (val) => "₹" + val.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const totalEl = document.getElementById("revTotalAmount");
+  if (totalEl) totalEl.textContent = formatINR(totalRevenue);
+  const totalCountEl = document.getElementById("revTotalCount");
+  if (totalCountEl) totalCountEl.textContent = `${totalCount} licenses recorded`;
+
+  const monthEl = document.getElementById("revMonthAmount");
+  if (monthEl) monthEl.textContent = formatINR(monthRevenue);
+  const monthCountEl = document.getElementById("revMonthCount");
+  if (monthCountEl) monthCountEl.textContent = `${monthCount} activations in ${now.toLocaleString("en-US", { month: "short" })}`;
+
+  const todayEl = document.getElementById("revTodayAmount");
+  if (todayEl) todayEl.textContent = formatINR(todayRevenue);
+  const todayCountEl = document.getElementById("revTodayCount");
+  if (todayCountEl) todayCountEl.textContent = `${todayCount} activations today`;
+
+  const avgEl = document.getElementById("revAvgAmount");
+  if (avgEl) avgEl.textContent = formatINR(avgRevenue);
+
+  const activeTotEl = document.getElementById("revActiveTotal");
+  if (activeTotEl) activeTotEl.textContent = formatINR(activeRevenue);
+  const activeCntEl = document.getElementById("revActiveCount");
+  if (activeCntEl) activeCntEl.textContent = `${activeCount} users`;
+  const activeShareEl = document.getElementById("revActiveShare");
+  if (activeShareEl) {
+    const pct = totalRevenue > 0 ? Math.round((activeRevenue / totalRevenue) * 100) : 0;
+    activeShareEl.textContent = `${pct}% of total revenue`;
+  }
+
+  const expTotEl = document.getElementById("revExpiredTotal");
+  if (expTotEl) expTotEl.textContent = formatINR(expiredRevenue);
+  const expCntEl = document.getElementById("revExpiredCount");
+  if (expCntEl) expCntEl.textContent = `${expiredCount} users`;
+
+  const voidTotEl = document.getElementById("revVoidTotal");
+  if (voidTotEl) voidTotEl.textContent = formatINR(voidRevenue);
+  const voidCntEl = document.getElementById("revVoidCount");
+  if (voidCntEl) voidCntEl.textContent = `${voidCount} users`;
+
+  renderProductRevenueBreakdown(productMap, totalRevenue);
+  filterRevenueTransactions();
+};
+
+function renderProductRevenueBreakdown(productMap, totalRevenue) {
+  const container = document.getElementById("revProductBreakdownContainer");
+  const badge = document.getElementById("revProductCountBadge");
+  if (!container) return;
+
+  const productsList = Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  if (badge) badge.textContent = `${productsList.length} Products`;
+
+  if (productsList.length === 0) {
+    container.innerHTML = `<div class="text-center py-4 text-muted"><i class="bi bi-inbox d-block fs-3 mb-2"></i>No product revenue records yet.</div>`;
+    return;
+  }
+
+  const formatINR = (val) => "₹" + val.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  let html = "";
+  const progressColors = ["bg-primary", "bg-success", "bg-warning", "bg-info", "bg-secondary"];
+
+  productsList.forEach((p, idx) => {
+    const percentage = totalRevenue > 0 ? ((p.totalRevenue / totalRevenue) * 100).toFixed(1) : 0;
+    const colorClass = progressColors[idx % progressColors.length];
+
+    html += `
+      <div class="mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <div class="fw-semibold text-dark">
+            <i class="bi bi-box-seam me-1 text-muted"></i> ${escapeHtml(p.name)}
+            <small class="text-muted ms-1">(${p.licenseCount} ${p.licenseCount === 1 ? "license" : "licenses"})</small>
+          </div>
+          <div class="text-end">
+            <span class="fw-bold text-dark">${formatINR(p.totalRevenue)}</span>
+            <small class="badge bg-light text-secondary border ms-2">${percentage}%</small>
+          </div>
+        </div>
+        <div class="progress" style="height: 8px;">
+          <div class="progress-bar ${colorClass}" role="progressbar" style="width: ${percentage}%;" aria-valuenow="${percentage}" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+window.filterRevenueTransactions = function () {
+  const searchInput = document.getElementById("revenueTxSearch");
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : "";
+  const tbody = document.getElementById("revenueTransactionsBody");
+  const emptyState = document.getElementById("emptyRevenueTxState");
+  if (!tbody) return;
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const todayStr = now.toISOString().split("T")[0];
+
+  let filtered = allWarranties.filter((r) => {
+    // Filter by period
+    if (currentRevenuePeriod === "month") {
+      const pDate = new Date(r.purchase_date);
+      if (isNaN(pDate) || pDate.getFullYear() !== currentYear || pDate.getMonth() !== currentMonth) {
+        return false;
+      }
+    } else if (currentRevenuePeriod === "today") {
+      const pDateStr = r.purchase_date ? r.purchase_date.split("T")[0] : "";
+      if (pDateStr !== todayStr) {
+        return false;
+      }
+    }
+
+    // Filter by search query
+    if (query) {
+      const matchCustomer = (r.customer_name || "").toLowerCase().includes(query);
+      const matchEmail = (r.customer_email || "").toLowerCase().includes(query);
+      const matchPhone = (r.customer_mobile || "").toLowerCase().includes(query);
+      const matchProduct = (r.product_name || "").toLowerCase().includes(query);
+      const matchSerial = (r.serial_number || "").toLowerCase().includes(query);
+      const matchInvoice = (r.invoice_no || "").toLowerCase().includes(query);
+      return matchCustomer || matchEmail || matchPhone || matchProduct || matchSerial || matchInvoice;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = "";
+    if (emptyState) emptyState.classList.remove("d-none");
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add("d-none");
+
+  const formatINR = (val) => "₹" + val.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let html = "";
+  filtered.forEach((r) => {
+    const pDate = new Date(r.purchase_date);
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+    const isWActive = today <= expiry && r.status !== "void";
+
+    let badgeClass = "badge bg-success-subtle text-success border border-success-subtle";
+    let statusLabel = "Active";
+    if (r.status === "void") {
+      badgeClass = "badge bg-secondary-subtle text-secondary border border-secondary-subtle";
+      statusLabel = "Void";
+    } else if (!isWActive) {
+      badgeClass = "badge bg-danger-subtle text-danger border border-danger-subtle";
+      statusLabel = "Expired";
+    }
+
+    const amt = parseFloat(r.amount) || 0;
+
+    html += `
+      <tr>
+        <td>
+          <div class="fw-semibold text-dark">${formatDate(pDate)}</div>
+          <small class="text-muted font-monospace"><i class="bi bi-receipt me-1"></i>${escapeHtml(r.invoice_no || "N/A")}</small>
+        </td>
+        <td>
+          <div class="fw-bold">${escapeHtml(r.customer_name || "Customer")}</div>
+          <small class="text-muted font-monospace">${escapeHtml(r.customer_mobile || r.customer_email || "N/A")}</small>
+        </td>
+        <td>
+          <div class="text-dark fw-semibold">${escapeHtml(r.product_name)}</div>
+          <small class="text-secondary font-monospace"><i class="bi bi-upc me-1"></i>${escapeHtml(r.serial_number)}</small>
+        </td>
+        <td>
+          <span class="${badgeClass} px-2 py-1 rounded-pill">${statusLabel}</span>
+        </td>
+        <td class="text-end">
+          <span class="fw-bold text-success fs-6">${formatINR(amt)}</span>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+};
+
+window.exportRevenueCSV = function () {
+  if (allWarranties.length === 0) {
+    alert("No records to export.");
+    return;
+  }
+
+  const headers = [
+    "Date",
+    "Invoice No",
+    "Customer Name",
+    "Customer Contact",
+    "Product Name",
+    "Serial Number",
+    "Status",
+    "Amount (INR)"
+  ];
+
+  const rows = allWarranties.map((w) => [
+    `"${w.purchase_date || ""}"`,
+    `"${(w.invoice_no || "").replace(/"/g, '""')}"`,
+    `"${(w.customer_name || "").replace(/"/g, '""')}"`,
+    `"${(w.customer_mobile || w.customer_email || "").replace(/"/g, '""')}"`,
+    `"${(w.product_name || "").replace(/"/g, '""')}"`,
+    `"${(w.serial_number || "").replace(/"/g, '""')}"`,
+    `"${w.status || "active"}"`,
+    parseFloat(w.amount || 0).toFixed(2)
+  ]);
+
+  const csvContent = "\uFEFF" + [headers.join(","), ...rows.map((r) => r.join(","))].join("\r\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `foxzen_revenue_report_${new Date().toISOString().split("T")[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// ===========================================================================
+// ADMIN SECURITY & MASTER PASSWORD MANAGER
+// ===========================================================================
+
+let securityModalInstance = null;
+
+async function computeSha256(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+window.openSecurityModal = function () {
+  if (!securityModalInstance) {
+    const el = document.getElementById("securityModal");
+    if (el) securityModalInstance = new bootstrap.Modal(el);
+  }
+
+  const passInput = document.getElementById("newMasterPassword");
+  if (passInput) passInput.value = "";
+  const meterBox = document.getElementById("secStrengthMeterBox");
+  if (meterBox) meterBox.style.display = "none";
+
+  updateSecurityStatusUI();
+  if (securityModalInstance) securityModalInstance.show();
+};
+
+async function updateSecurityStatusUI() {
+  const statusText = document.getElementById("secCurrentStatusText");
+  const badge = document.getElementById("secStatusBadge");
+  const emailInput = document.getElementById("newAdminEmail");
+  const emailDisplay = document.getElementById("secCurrentEmailDisplay");
+  const hashDisplay = document.getElementById("secCurrentHashDisplay");
+  const sqlSnippet = document.getElementById("secSqlSnippet");
+
+  if (statusText) statusText.textContent = "Connecting to Supabase...";
+  if (badge) {
+    badge.className = "badge bg-secondary text-white px-3 py-2 rounded-pill";
+    badge.textContent = "Connecting...";
+  }
+
+  let activeEmail = localStorage.getItem("foxzen_admin_email") || "admin@foxzen.com";
+  let activeHash = localStorage.getItem("foxzen_admin_hash") || "";
+
+  try {
+    let sbFound = false;
+    if (window.warrantyService && window.warrantyService.client) {
+      const { data, error } = await window.warrantyService.client
+        .from("admin_credentials")
+        .select("email, password_hash, updated_at")
+        .eq("id", "admin")
+        .maybeSingle();
+
+      if (!error && data) {
+        sbFound = true;
+        activeEmail = data.email || activeEmail;
+        activeHash = data.password_hash || activeHash;
+        localStorage.setItem("foxzen_admin_email", activeEmail);
+        localStorage.setItem("foxzen_admin_hash", activeHash);
+      }
+    }
+
+    if (emailInput && !emailInput.value) emailInput.value = activeEmail;
+    if (emailDisplay) emailDisplay.value = activeEmail;
+    if (hashDisplay) hashDisplay.value = activeHash || "No custom hash yet (default active)";
+    if (sqlSnippet) {
+      sqlSnippet.textContent = `SELECT public.update_admin_account('${activeEmail}', 'YourNewPassword123!');`;
+    }
+
+    if (sbFound) {
+      if (statusText) statusText.textContent = `Active & Verified in Supabase (${activeEmail})`;
+      if (badge) {
+        badge.className = "badge bg-success text-white px-3 py-2 rounded-pill";
+        badge.innerHTML = '<i class="bi bi-cloud-check-fill me-1"></i> Saved in Supabase';
+      }
+    } else if (activeHash) {
+      if (statusText) statusText.textContent = `Custom Credentials Active locally (${activeEmail})`;
+      if (badge) {
+        badge.className = "badge bg-primary text-white px-3 py-2 rounded-pill";
+        badge.innerHTML = '<i class="bi bi-shield-check me-1"></i> Custom Active';
+      }
+    } else {
+      if (statusText) statusText.textContent = "Ready to configure credentials in Supabase";
+      if (badge) {
+        badge.className = "badge bg-info text-white px-3 py-2 rounded-pill";
+        badge.innerHTML = '<i class="bi bi-info-circle me-1"></i> Default Active';
+      }
+    }
+  } catch (err) {
+    if (statusText) statusText.textContent = "Offline or Local Mode";
+    if (badge) {
+      badge.className = "badge bg-secondary text-white px-3 py-2 rounded-pill";
+      badge.textContent = "Local";
+    }
+  }
+}
+
+window.toggleSecPasswordVisibility = function () {
+  const input = document.getElementById("newMasterPassword");
+  const icon = document.getElementById("toggleSecPassIcon");
+  if (!input || !icon) return;
+  if (input.type === "password") {
+    input.type = "text";
+    icon.className = "bi bi-eye-slash-fill";
+  } else {
+    input.type = "password";
+    icon.className = "bi bi-eye-fill";
+  }
+};
+
+window.checkNewPasswordStrength = function () {
+  const pass = (document.getElementById("newMasterPassword")?.value || "").trim();
+  const bar = document.getElementById("passStrengthBar");
+  const label = document.getElementById("passStrengthLabel");
+  const meterBox = document.getElementById("secStrengthMeterBox");
+
+  if (!pass) {
+    if (meterBox) meterBox.style.display = "none";
+    return;
+  }
+  if (meterBox) meterBox.style.display = "block";
+
+  const hasLength = pass.length >= 10;
+  const hasUpper = /[A-Z]/.test(pass);
+  const hasLower = /[a-z]/.test(pass);
+  const hasNumber = /[0-9]/.test(pass);
+  const hasSpecial = /[^A-Za-z0-9]/.test(pass);
+
+  updateBadgeState("chkLength", hasLength);
+  updateBadgeState("chkUpper", hasUpper);
+  updateBadgeState("chkLower", hasLower);
+  updateBadgeState("chkNumber", hasNumber);
+  updateBadgeState("chkSpecial", hasSpecial);
+
+  let score = 0;
+  if (pass.length >= 8) score++;
+  if (hasLength) score++;
+  if (hasUpper && hasLower) score++;
+  if (hasNumber) score++;
+  if (hasSpecial) score++;
+
+  if (score <= 2) {
+    if (bar) { bar.style.width = "25%"; bar.className = "progress-bar pass-strength-bar bg-danger"; }
+    if (label) { label.textContent = "Weak"; label.className = "small fw-bold text-danger"; }
+  } else if (score === 3) {
+    if (bar) { bar.style.width = "50%"; bar.className = "progress-bar pass-strength-bar bg-warning"; }
+    if (label) { label.textContent = "Medium"; label.className = "small fw-bold text-warning"; }
+  } else if (score === 4) {
+    if (bar) { bar.style.width = "75%"; bar.className = "progress-bar pass-strength-bar bg-info"; }
+    if (label) { label.textContent = "Strong"; label.className = "small fw-bold text-info"; }
+  } else {
+    if (bar) { bar.style.width = "100%"; bar.className = "progress-bar pass-strength-bar bg-success"; }
+    if (label) { label.textContent = "Very Strong"; label.className = "small fw-bold text-success"; }
+  }
+};
+
+function updateBadgeState(id, isMet) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const labelText = el.getAttribute("data-label") || el.textContent.trim().replace(/^.*? /, "");
+  el.setAttribute("data-label", labelText);
+
+  if (isMet) {
+    el.className = "badge bg-success-subtle text-success border border-success-subtle";
+    el.innerHTML = `<i class="bi bi-check-circle-fill me-1"></i>${labelText}`;
+  } else {
+    el.className = "badge bg-light text-secondary border";
+    el.innerHTML = `<i class="bi bi-circle me-1"></i>${labelText}`;
+  }
+}
+
+window.generateAndSetStrongPassword = function () {
+  const charsUpper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const charsLower = "abcdefghjkmnpqrstuvwxyz";
+  const charsNum = "23456789";
+  const charsSpecial = "!@#$%^&*()_+~=";
+  const allChars = charsUpper + charsLower + charsNum + charsSpecial;
+
+  let pass = "";
+  pass += charsUpper[Math.floor(Math.random() * charsUpper.length)];
+  pass += charsLower[Math.floor(Math.random() * charsLower.length)];
+  pass += charsNum[Math.floor(Math.random() * charsNum.length)];
+  pass += charsSpecial[Math.floor(Math.random() * charsSpecial.length)];
+
+  for (let i = 4; i < 16; i++) {
+    pass += allChars[Math.floor(Math.random() * allChars.length)];
+  }
+
+  pass = pass.split("").sort(() => 0.5 - Math.random()).join("");
+
+  const input = document.getElementById("newMasterPassword");
+  if (input) {
+    input.value = pass;
+    input.type = "text";
+  }
+  const icon = document.getElementById("toggleSecPassIcon");
+  if (icon) icon.className = "bi bi-eye-slash-fill";
+  checkNewPasswordStrength();
+
+  navigator.clipboard.writeText(pass).catch(() => {});
+  alert(`Strong password generated & copied to clipboard:\n\n${pass}\n\nClick "Save to Supabase Database" below to apply it.`);
+};
+
+window.saveNewAdminCredentials = async function () {
+  const emailInput = document.getElementById("newAdminEmail");
+  const passInput = document.getElementById("newMasterPassword");
+  const saveBtn = document.getElementById("btnSaveAdminSec");
+
+  const email = (emailInput?.value || "").trim().toLowerCase();
+  const pass = (passInput?.value || "").trim();
+
+  if (!email || !email.includes("@") || !email.includes(".")) {
+    alert("Please enter a valid Admin Email address (e.g. admin@foxzen.com).");
+    if (emailInput) emailInput.focus();
+    return;
+  }
+
+  let newHash = null;
+  if (pass.length > 0) {
+    if (pass.length < 8) {
+      alert("New password must be at least 8 characters long.");
+      if (passInput) passInput.focus();
+      return;
+    }
+    newHash = await computeSha256(pass);
+  } else {
+    // Keep existing hash
+    const currentHashEl = document.getElementById("secCurrentHashDisplay");
+    const existingVal = currentHashEl?.value || "";
+    if (existingVal && existingVal.length === 64) {
+      newHash = existingVal;
+    } else {
+      newHash = localStorage.getItem("foxzen_admin_hash") || "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b";
+    }
+  }
+
+  // Visual saving indicator
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving to Supabase...';
+  }
+
+  try {
+    let savedInSupabase = false;
+
+    if (window.warrantyService && window.warrantyService.client) {
+      const sb = window.warrantyService.client;
+
+      // 1. Try RPC update_admin_credentials
+      let { error: rpcErr } = await sb.rpc("update_admin_credentials", {
+        new_email: email,
+        new_hash: newHash
+      });
+
+      if (!rpcErr) {
+        savedInSupabase = true;
+      } else {
+        // 2. Try RPC update_admin_password
+        let { error: rpc2Err } = await sb.rpc("update_admin_password", {
+          target_email: email,
+          new_hash: newHash
+        });
+
+        if (!rpc2Err) {
+          savedInSupabase = true;
+        } else {
+          // 3. Fallback table upsert
+          const { error: upsertErr } = await sb.from("admin_credentials").upsert({
+            id: "admin",
+            email: email,
+            password_hash: newHash,
+            updated_at: new Date().toISOString()
+          });
+          if (!upsertErr) {
+            savedInSupabase = true;
+          }
+        }
+      }
+    }
+
+    localStorage.setItem("foxzen_admin_email", email);
+    localStorage.setItem("foxzen_admin_hash", newHash);
+
+    if (passInput) passInput.value = "";
+    const meterBox = document.getElementById("secStrengthMeterBox");
+    if (meterBox) meterBox.style.display = "none";
+
+    await updateSecurityStatusUI();
+
+    if (savedInSupabase) {
+      alert(`Success! Admin credentials updated & saved in Supabase!\n\nEmail: ${email}\n${pass.length > 0 ? "Password: Updated successfully\n" : "Password: Kept existing password\n"}Hash: ${newHash}`);
+    } else {
+      alert(`Credentials updated locally!\nEmail: ${email}\nTo ensure it saves into Supabase, make sure Section 6 of supabase/schema.sql has been executed in your Supabase SQL editor.`);
+    }
+  } catch (err) {
+    console.error("Save credentials error:", err);
+    alert("Error updating credentials: " + err.message);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="bi bi-cloud-arrow-up-fill me-1"></i> Save to Supabase Database';
+    }
+  }
+};
+
+window.saveNewAdminPassword = window.saveNewAdminCredentials;
+
+window.resetToDefaultPassword = async function () {
+  if (!confirm("Are you sure you want to reset admin credentials to default?\n\nEmail: admin@foxzen.com\nPassword: admin123@verify")) {
+    return;
+  }
+
+  const defaultEmail = "admin@foxzen.com";
+  const defaultHash = "2bb80d537b1da3e38bd30361aa855686bde0eacd7162fef6a25fe97bf527a25b";
+
+  try {
+    if (window.warrantyService && window.warrantyService.client) {
+      await window.warrantyService.client.from("admin_credentials").upsert({
+        id: "admin",
+        email: defaultEmail,
+        password_hash: defaultHash,
+        updated_at: new Date().toISOString()
+      });
+    }
+  } catch (e) {}
+
+  localStorage.removeItem("foxzen_admin_hash");
+  localStorage.setItem("foxzen_admin_email", defaultEmail);
+
+  const emailInput = document.getElementById("newAdminEmail");
+  if (emailInput) emailInput.value = defaultEmail;
+  const passInput = document.getElementById("newMasterPassword");
+  if (passInput) passInput.value = "";
+
+  await updateSecurityStatusUI();
+  alert("Credentials successfully reset to default:\nEmail: admin@foxzen.com\nPassword: admin123@verify");
+};
+
+window.copySecHash = function () {
+  const hash = document.getElementById("secCurrentHashDisplay")?.value || "";
+  if (!hash || hash.includes("Loading") || hash.includes("No custom")) {
+    alert("No custom hash available yet.");
+    return;
+  }
+
+  navigator.clipboard.writeText(hash).then(() => {
+    const btnText = document.getElementById("copySecHashBtnText");
+    if (btnText) {
+      btnText.textContent = "Copied!";
+      setTimeout(() => { btnText.textContent = "Copy"; }, 2000);
+    }
+  });
+};
+
+window.copySecSql = function () {
+  const sql = document.getElementById("secSqlSnippet")?.textContent?.trim() || "";
+  if (!sql) return;
+
+  navigator.clipboard.writeText(sql).then(() => {
+    const btnText = document.getElementById("copySecSqlBtnText");
+    if (btnText) {
+      btnText.textContent = "Copied!";
+      setTimeout(() => { btnText.textContent = "Copy SQL"; }, 2000);
+    }
+  });
+};
+
