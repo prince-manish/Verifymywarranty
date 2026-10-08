@@ -176,6 +176,58 @@ const DEFAULT_DEMO_WARRANTIES = [
   }
 ];
 
+// Initial Seed Demo Leads / Enquiries
+const DEFAULT_DEMO_LEADS = [
+  {
+    id: "lead-demo-1",
+    name: "Vikram Malhotra",
+    first_name: "Vikram",
+    last_name: "Malhotra",
+    phone: "+91 9876541230",
+    telegram: "@vikram_malhotra",
+    email: "vikram@techagency.in",
+    plan: "Yearly Plan (₹899)",
+    amount: 899.00,
+    business_name: "TechAgency Solutions",
+    message: "Interested in the yearly license setup for our digital products. Need custom branding and verification for 500+ licenses.",
+    status: "new",
+    source: "website_pricing",
+    created_at: new Date(Date.now() - 3600000 * 3).toISOString()
+  },
+  {
+    id: "lead-demo-2",
+    name: "Ananya Deshmukh",
+    first_name: "Ananya",
+    last_name: "Deshmukh",
+    phone: "+91 9812345678",
+    telegram: "@ananya_gadgets",
+    email: "ananya@gadgetzone.com",
+    plan: "Lifetime Setup (₹9,999)",
+    amount: 9999.00,
+    business_name: "GadgetZone Retail",
+    message: "Want full source code & lifetime license verification for our 5 retail branches. How soon can we deploy?",
+    status: "contacted",
+    source: "website_pricing",
+    created_at: new Date(Date.now() - 86400000).toISOString()
+  },
+  {
+    id: "lead-demo-3",
+    name: "Rajesh Kumar",
+    first_name: "Rajesh",
+    last_name: "Kumar",
+    phone: "+91 9988776655",
+    telegram: "",
+    email: "rajesh@digitalkeys.store",
+    plan: "Monthly Plan (₹99)",
+    amount: 99.00,
+    business_name: "DigitalKeys",
+    message: "Testing license verification for our software tools. Looking for monthly starter.",
+    status: "converted",
+    source: "website_pricing",
+    created_at: new Date(Date.now() - 86400000 * 3).toISOString()
+  }
+];
+
 class WarrantyService {
   constructor() {
     this.client = null;
@@ -278,16 +330,51 @@ class WarrantyService {
     };
 
     if (this.isLive) {
-      const { data, error } = await this.client.from("products").insert([newProduct]).select();
-      if (error) {
-        // Fallback to local storage if table missing
-        newProduct.id = "prod-" + Date.now();
-        const list = this.getDemoProducts();
-        list.unshift(newProduct);
-        this.saveDemoProducts(list);
-        return { data: newProduct, error: null };
+      let { data, error } = await this.client.from("products").insert([newProduct]).select();
+
+      // If 'default_amount' or 'amount' column not yet in Supabase, retry with alternative or without it
+      if (error && (error.message?.includes("default_amount") || error.message?.includes("amount") || error.code === "42703" || error.code === "PGRST204")) {
+        // Try with only default_amount
+        let fallback = { ...newProduct };
+        delete fallback.amount;
+        let retry = await this.client.from("products").insert([fallback]).select();
+        if (!retry.error) {
+          data = retry.data;
+          error = null;
+        } else {
+          // Try with only amount
+          fallback = { ...newProduct };
+          delete fallback.default_amount;
+          retry = await this.client.from("products").insert([fallback]).select();
+          if (!retry.error) {
+            data = retry.data;
+            error = null;
+          } else {
+            // Try without any amount column
+            delete fallback.amount;
+            delete fallback.default_amount;
+            retry = await this.client.from("products").insert([fallback]).select();
+            if (!retry.error) {
+              data = retry.data;
+              error = null;
+            }
+          }
+        }
       }
-      return { data: data ? data[0] : null, error };
+
+      if (error) {
+        console.error("Supabase createProduct error:", error);
+        // If table doesn't exist at all, save to local demo products
+        if (error.code === "PGRST205" || error.message?.includes("products")) {
+          newProduct.id = "prod-" + Date.now();
+          const list = this.getDemoProducts();
+          list.unshift(newProduct);
+          this.saveDemoProducts(list);
+          return { data: newProduct, error: null };
+        }
+        return { data: null, error };
+      }
+      return { data: data ? data[0] : null, error: null };
     } else {
       newProduct.id = "prod-" + Date.now();
       const list = this.getDemoProducts();
@@ -301,21 +388,53 @@ class WarrantyService {
     updates.updated_at = new Date().toISOString();
 
     if (this.isLive) {
-      const { data, error } = await this.client
+      let { data, error } = await this.client
         .from("products")
         .update(updates)
         .eq("id", id)
         .select();
-      if (error) {
-        const list = this.getDemoProducts();
-        const idx = list.findIndex((p) => p.id === id);
-        if (idx !== -1) {
-          list[idx] = { ...list[idx], ...updates };
-          this.saveDemoProducts(list);
-          return { data: list[idx], error: null };
+
+      // If 'default_amount' or 'amount' column not yet migrated in Supabase, retry with alternative or without it
+      if (error && (error.message?.includes("default_amount") || error.message?.includes("amount") || error.code === "42703" || error.code === "PGRST204")) {
+        let fallback = { ...updates };
+        delete fallback.amount;
+        let retry = await this.client.from("products").update(fallback).eq("id", id).select();
+        if (!retry.error) {
+          data = retry.data;
+          error = null;
+        } else {
+          fallback = { ...updates };
+          delete fallback.default_amount;
+          retry = await this.client.from("products").update(fallback).eq("id", id).select();
+          if (!retry.error) {
+            data = retry.data;
+            error = null;
+          } else {
+            delete fallback.amount;
+            delete fallback.default_amount;
+            retry = await this.client.from("products").update(fallback).eq("id", id).select();
+            if (!retry.error) {
+              data = retry.data;
+              error = null;
+            }
+          }
         }
       }
-      return { data: data ? data[0] : null, error };
+
+      if (error) {
+        console.error("Supabase updateProduct error:", error);
+        if (error.code === "PGRST205" || error.message?.includes("products")) {
+          const list = this.getDemoProducts();
+          const idx = list.findIndex((p) => p.id === id);
+          if (idx !== -1) {
+            list[idx] = { ...list[idx], ...updates };
+            this.saveDemoProducts(list);
+            return { data: list[idx], error: null };
+          }
+        }
+        return { data: null, error };
+      }
+      return { data: data ? data[0] : null, error: null };
     } else {
       const list = this.getDemoProducts();
       const idx = list.findIndex((p) => p.id === id);
@@ -569,6 +688,169 @@ class WarrantyService {
       }));
       this.saveDemoRecords([...formatted, ...list]);
       return { count: records.length, error: null };
+    }
+  }
+
+  // =========================================================================
+  // LEADS & PORTAL ENQUIRIES MANAGEMENT
+  // =========================================================================
+
+  getDemoLeads() {
+    try {
+      const stored = localStorage.getItem("foxzen_demo_leads");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      localStorage.setItem("foxzen_demo_leads", JSON.stringify(DEFAULT_DEMO_LEADS));
+      return DEFAULT_DEMO_LEADS;
+    } catch (e) {
+      return DEFAULT_DEMO_LEADS;
+    }
+  }
+
+  saveDemoLeads(leads) {
+    localStorage.setItem("foxzen_demo_leads", JSON.stringify(leads));
+  }
+
+  async getAllLeads() {
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        return { data: this.getDemoLeads(), error: null };
+      }
+      return { data: data || [], error: null };
+    } else {
+      return { data: this.getDemoLeads(), error: null };
+    }
+  }
+
+  async createLead(leadData) {
+    const firstName = leadData.first_name || "";
+    const lastName = leadData.last_name || "";
+    const name = leadData.name || leadData.full_name || `${firstName} ${lastName}`.trim() || "Client";
+    const telegram = leadData.telegram || "";
+    const phone = leadData.phone || "";
+    const email = leadData.email || "";
+    const plan = leadData.plan || leadData.plan_interested || "Custom";
+    const amount = Number(leadData.amount !== undefined ? leadData.amount : leadData.plan_amount || 0);
+    const message = leadData.message || leadData.notes || "";
+
+    const cleanPayload = {
+      name: name,
+      phone: phone,
+      email: email,
+      plan: plan,
+      amount: amount,
+      business_name: leadData.business_name || "",
+      message: message,
+      status: (leadData.status || "new").toLowerCase(),
+      source: leadData.source || "website_pricing"
+    };
+
+    const localRecord = {
+      ...cleanPayload,
+      first_name: firstName,
+      last_name: lastName,
+      telegram: telegram,
+      full_name: name,
+      plan_interested: plan,
+      plan_amount: amount,
+      notes: message,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (this.isLive) {
+      let insertData = { ...cleanPayload };
+      if (telegram) insertData.telegram = telegram;
+      if (firstName) insertData.first_name = firstName;
+      if (lastName) insertData.last_name = lastName;
+
+      let { data, error } = await this.client
+        .from("leads")
+        .insert([insertData])
+        .select();
+
+      // If custom columns don't exist in Supabase yet, retry with base columns
+      if (error && (error.code === "42703" || error.message?.includes("column") || error.code === "PGRST204")) {
+        const retry = await this.client
+          .from("leads")
+          .insert([cleanPayload])
+          .select();
+        if (!retry.error) {
+          data = retry.data;
+          error = null;
+        }
+      }
+
+      if (error) {
+        console.warn("Supabase createLead notice:", error);
+        localRecord.id = "lead-loc-" + Date.now();
+        const list = this.getDemoLeads();
+        list.unshift(localRecord);
+        this.saveDemoLeads(list);
+        return { data: localRecord, error: null };
+      }
+      return { data: data ? data[0] : localRecord, error: null };
+    } else {
+      localRecord.id = "lead-loc-" + Date.now();
+      const list = this.getDemoLeads();
+      list.unshift(localRecord);
+      this.saveDemoLeads(list);
+      return { data: localRecord, error: null };
+    }
+  }
+
+  async updateLeadStatus(id, newStatus) {
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("leads")
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select();
+
+      if (error) {
+        const list = this.getDemoLeads();
+        const idx = list.findIndex((l) => l.id === id);
+        if (idx !== -1) {
+          list[idx].status = newStatus;
+          this.saveDemoLeads(list);
+          return { data: list[idx], error: null };
+        }
+      }
+      return { data: data ? data[0] : null, error };
+    } else {
+      const list = this.getDemoLeads();
+      const idx = list.findIndex((l) => l.id === id);
+      if (idx !== -1) {
+        list[idx].status = newStatus;
+        this.saveDemoLeads(list);
+        return { data: list[idx], error: null };
+      }
+      return { data: null, error: { message: "Lead not found" } };
+    }
+  }
+
+  async deleteLead(id) {
+    if (this.isLive) {
+      const { error } = await this.client.from("leads").delete().eq("id", id);
+      if (error) {
+        let list = this.getDemoLeads();
+        list = list.filter((l) => l.id !== id);
+        this.saveDemoLeads(list);
+        return { error: null };
+      }
+      return { error };
+    } else {
+      let list = this.getDemoLeads();
+      list = list.filter((l) => l.id !== id);
+      this.saveDemoLeads(list);
+      return { error: null };
     }
   }
 }

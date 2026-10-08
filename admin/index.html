@@ -68,6 +68,12 @@
                     <i class="bi bi-cash-stack me-2 text-warning"></i>Revenue Dashboard
                 </button>
             </li>
+            <li class="nav-item">
+                <button class="nav-link" id="tabLeadsBtn" onclick="switchAdminTab('leads')">
+                    <i class="bi bi-person-lines-fill me-2 text-info"></i>Leads & Enquiries
+                    <span class="badge bg-danger rounded-pill ms-1 d-none" id="leadsNavBadge">0</span>
+                </button>
+            </li>
         </ul>
 
         <!-- ================================================================= -->
@@ -428,6 +434,132 @@
                     <i class="bi bi-cash display-4 text-muted d-block mb-3"></i>
                     <h5 class="fw-bold text-secondary">No Transactions Found</h5>
                     <p class="text-muted small">No license sales match your search.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- TAB 4: LEADS & ENQUIRIES VIEW -->
+        <!-- ================================================================= -->
+        <div id="viewLeadsSection" class="d-none">
+            <!-- LEADS STATS CARDS -->
+            <div class="row g-3 mb-4">
+                <div class="col-sm-6 col-xl-3">
+                    <div class="stat-card d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-semibold">TOTAL LEADS</span>
+                            <h3 class="stat-number text-dark" id="leadStatTotal">0</h3>
+                        </div>
+                        <div class="stat-icon bg-info bg-opacity-10 text-info">
+                            <i class="bi bi-people"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-xl-3">
+                    <div class="stat-card d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-semibold">NEW ENQUIRIES</span>
+                            <h3 class="stat-number text-danger" id="leadStatNew">0</h3>
+                        </div>
+                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                            <i class="bi bi-bell"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-xl-3">
+                    <div class="stat-card d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-semibold">CONTACTED / IN PROGRESS</span>
+                            <h3 class="stat-number text-warning" id="leadStatContacted">0</h3>
+                        </div>
+                        <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                            <i class="bi bi-chat-dots"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-sm-6 col-xl-3">
+                    <div class="stat-card d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small fw-semibold">CONVERTED CLIENTS</span>
+                            <h3 class="stat-number text-success" id="leadStatConverted">0</h3>
+                        </div>
+                        <div class="stat-icon bg-success bg-opacity-10 text-success">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABLE CONTAINER -->
+            <div class="table-container p-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+                    <div>
+                        <h5 class="fw-bold text-dark mb-1">
+                            <i class="bi bi-person-lines-fill text-info me-2"></i>Incoming Leads & Client Enquiries
+                        </h5>
+                        <p class="text-muted small mb-0">Track and respond to businesses interested in buying your license setup.</p>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-outline-success btn-sm rounded-pill px-3 shadow-sm" onclick="exportLeadsToCSV()">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Leads CSV
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-3 shadow-sm" onclick="loadLeads()">
+                            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SEARCH & FILTER TOOLBAR -->
+                <div class="row g-2 mb-3">
+                    <div class="col-md-7 col-lg-8">
+                        <div class="input-group">
+                            <span class="input-group-text bg-white border-end-0 text-muted">
+                                <i class="bi bi-search"></i>
+                            </span>
+                            <input type="text" id="leadsTableSearch" class="form-control border-start-0 ps-0" placeholder="Search by client name, mobile, email, plan or business...">
+                        </div>
+                    </div>
+                    <div class="col-md-5 col-lg-4">
+                        <select id="leadStatusFilter" class="form-select" onchange="renderLeadsTable()">
+                            <option value="">All Statuses (All Leads)</option>
+                            <option value="New">Status: New Only</option>
+                            <option value="Contacted">Status: Contacted</option>
+                            <option value="Converted">Status: Converted</option>
+                            <option value="Closed">Status: Closed</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- TABLE -->
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="leadsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>CLIENT NAME</th>
+                                <th>CONTACT CHANNELS</th>
+                                <th>PLAN</th>
+                                <th>CUSTOMER QUERY / MESSAGE</th>
+                                <th>DATE</th>
+                                <th>STATUS</th>
+                                <th class="text-end">ACTIONS</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leadsTableBody">
+                            <tr>
+                                <td colspan="7" class="text-center py-4 text-muted">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2"></div>Loading enquiries...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- EMPTY STATE -->
+                <div id="emptyLeadsState" class="text-center py-5 d-none">
+                    <i class="bi bi-inbox display-4 text-muted d-block mb-3"></i>
+                    <h5 class="fw-bold text-secondary">No Leads Found</h5>
+                    <p class="text-muted small">No customer enquiries match your search or filter.</p>
                 </div>
             </div>
         </div>
@@ -945,6 +1077,72 @@ SELECT public.update_admin_account('admin@foxzen.com', 'YourNewPassword123!');
         </div>
     </div>
 
+    <!-- ================================================================= -->
+    <!-- MODAL: VIEW LEAD QUERY & MESSAGE DETAILS -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="leadMessageModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark mb-0">
+                            <i class="bi bi-chat-quote-fill text-info me-2"></i>Customer Query & Details
+                        </h5>
+                        <small class="text-muted" id="modalLeadReceivedDate">Received enquiry</small>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- CLIENT & PLAN SUMMARY -->
+                    <div class="p-3 bg-light rounded-3 mb-3 border">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                <h5 class="fw-bold text-dark mb-0" id="modalLeadName">-</h5>
+                                <small class="text-muted" id="modalLeadBusiness"></small>
+                            </div>
+                            <span class="badge bg-primary px-3 py-2 rounded-pill fs-6" id="modalLeadPlanBadge">-</span>
+                        </div>
+                        <div class="small text-muted">
+                            Interested Amount: <strong class="text-dark" id="modalLeadAmount">-</strong>
+                        </div>
+                    </div>
+
+                    <!-- QUERY / MESSAGE BOX -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark small mb-1">
+                            <i class="bi bi-chat-left-text-fill text-primary me-1"></i> Customer Query / Requirements:
+                        </label>
+                        <div class="p-3 bg-white rounded-3 border text-dark" id="modalLeadQueryBody" style="white-space: pre-wrap; font-size: 0.95rem; min-height: 90px; line-height: 1.6;">
+                            -
+                        </div>
+                    </div>
+
+                    <!-- CONTACT OPTIONS -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-dark small mb-2">Contact Details & Fast Actions:</label>
+                        <div class="d-flex flex-column gap-2" id="modalLeadContactActions">
+                            <!-- Injected dynamically: WhatsApp, Telegram, Email -->
+                        </div>
+                    </div>
+
+                    <!-- STATUS CHANGE -->
+                    <div class="pt-2 border-top">
+                        <label class="form-label fw-semibold small mb-1">Update Status:</label>
+                        <select class="form-select" id="modalLeadStatusSelect" onchange="onModalLeadStatusChange(this.value)">
+                            <option value="New">🔴 New</option>
+                            <option value="Contacted">🟡 Contacted</option>
+                            <option value="Converted">🟢 Converted</option>
+                            <option value="Closed">⚪ Closed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -952,8 +1150,8 @@ SELECT public.update_admin_account('admin@foxzen.com', 'YourNewPassword123!');
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Application Scripts -->
-    <script src="../js/config.js"></script>
-    <script src="../js/supabaseClient.js"></script>
-    <script src="../js/admin.js"></script>
+    <script src="../js/config.js?v=2.6"></script>
+    <script src="../js/supabaseClient.js?v=2.6"></script>
+    <script src="../js/admin.js?v=2.7"></script>
 </body>
 </html>

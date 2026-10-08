@@ -12,6 +12,7 @@
 // Global State
 let allWarranties = [];
 let allProducts = [];
+let allLeads = [];
 let parsedCSVRecords = [];
 let currentNotifFilter = "all";
 
@@ -21,6 +22,8 @@ let productModalInstance = null;
 let postSaveModalInstance = null;
 let notificationModalInstance = null;
 let importModalInstance = null;
+let leadMessageModalInstance = null;
+let currentModalLeadId = null;
 
 document.addEventListener("DOMContentLoaded", function () {
   // 1. Auth Guard
@@ -32,6 +35,10 @@ document.addEventListener("DOMContentLoaded", function () {
   postSaveModalInstance = new bootstrap.Modal(document.getElementById("postSaveModal"));
   notificationModalInstance = new bootstrap.Modal(document.getElementById("notificationModal"));
   importModalInstance = new bootstrap.Modal(document.getElementById("importModal"));
+  const leadMsgModalEl = document.getElementById("leadMessageModal");
+  if (leadMsgModalEl) {
+    leadMessageModalInstance = new bootstrap.Modal(leadMsgModalEl);
+  }
 
   // 3. Update Environment Indicator
   updateBackendBadge();
@@ -39,11 +46,17 @@ document.addEventListener("DOMContentLoaded", function () {
   // 4. Load Data
   loadProducts();
   loadWarranties();
+  loadLeads();
 
   // 5. Attach Filter & Search Listeners
   document.getElementById("adminTableSearch").addEventListener("input", filterAndRenderTable);
   document.getElementById("statusFilter").addEventListener("change", filterAndRenderTable);
   document.getElementById("productSearchInput").addEventListener("input", filterAndRenderProducts);
+
+  const leadsSearch = document.getElementById("leadsTableSearch");
+  if (leadsSearch) leadsSearch.addEventListener("input", renderLeadsTable);
+  const leadsFilter = document.getElementById("leadStatusFilter");
+  if (leadsFilter) leadsFilter.addEventListener("change", renderLeadsTable);
 
   // 6. Attach Form Submission Listeners
   document.getElementById("warrantyForm").addEventListener("submit", handleWarrantyFormSubmit);
@@ -76,12 +89,14 @@ window.switchAdminTab = function (tab) {
   const usersSec = document.getElementById("viewUsersSection");
   const prodsSec = document.getElementById("viewProductsSection");
   const revSec = document.getElementById("viewRevenueSection");
+  const leadsSec = document.getElementById("viewLeadsSection");
   const tabUsersBtn = document.getElementById("tabUsersBtn");
   const tabProdsBtn = document.getElementById("tabProductsBtn");
   const tabRevBtn = document.getElementById("tabRevenueBtn");
+  const tabLeadsBtn = document.getElementById("tabLeadsBtn");
 
-  [usersSec, prodsSec, revSec].forEach((el) => el && el.classList.add("d-none"));
-  [tabUsersBtn, tabProdsBtn, tabRevBtn].forEach((btn) => btn && btn.classList.remove("active"));
+  [usersSec, prodsSec, revSec, leadsSec].forEach((el) => el && el.classList.add("d-none"));
+  [tabUsersBtn, tabProdsBtn, tabRevBtn, tabLeadsBtn].forEach((btn) => btn && btn.classList.remove("active"));
 
   if (tab === "products") {
     prodsSec.classList.remove("d-none");
@@ -92,6 +107,10 @@ window.switchAdminTab = function (tab) {
     if (typeof window.renderRevenueDashboard === "function") {
       window.renderRevenueDashboard();
     }
+  } else if (tab === "leads") {
+    leadsSec && leadsSec.classList.remove("d-none");
+    tabLeadsBtn && tabLeadsBtn.classList.add("active");
+    loadLeads();
   } else {
     usersSec.classList.remove("d-none");
     tabUsersBtn.classList.add("active");
@@ -141,8 +160,8 @@ function populateProductDropdown(products) {
     opt.setAttribute("data-name", p.name);
     opt.setAttribute("data-warranty", p.default_warranty_months || 12);
     opt.setAttribute("data-validity", p.default_validity_months || 12);
-    opt.setAttribute("data-type", p.duration_type || "month");
-    opt.setAttribute("data-amount", (p.default_amount !== undefined && p.default_amount !== null) ? p.default_amount : 0);
+    const prodAmount = (p.default_amount !== undefined && p.default_amount !== null && p.default_amount !== "") ? p.default_amount : (p.amount !== undefined && p.amount !== null && p.amount !== "") ? p.amount : 0;
+    opt.setAttribute("data-amount", prodAmount);
     select.appendChild(opt);
   });
 
@@ -257,7 +276,7 @@ function filterAndRenderProducts() {
         </td>
         <td>
           <span class="fw-bold text-dark">
-            ${(p.default_amount !== undefined && p.default_amount !== null && p.default_amount !== "") ? `₹${parseFloat(p.default_amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `<span class="text-muted fw-normal">₹0.00</span>`}
+            ${((p.default_amount !== undefined && p.default_amount !== null && p.default_amount !== "") || (p.amount !== undefined && p.amount !== null && p.amount !== "")) ? `₹${parseFloat(p.default_amount ?? p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `<span class="text-muted fw-normal">₹0.00</span>`}
           </span>
         </td>
         <td><small class="text-muted">${escapeHtml(p.description || "N/A")}</small></td>
@@ -298,7 +317,8 @@ window.openEditProductModal = function (id) {
   document.getElementById("productFormWarranty").value = p.default_warranty_months || 12;
   document.getElementById("productFormValidity").value = p.default_validity_months || 12;
   document.getElementById("productFormDurationType").value = p.duration_type || "month";
-  document.getElementById("productFormAmount").value = (p.default_amount !== undefined && p.default_amount !== null) ? p.default_amount : "";
+  const existingAmt = (p.default_amount !== undefined && p.default_amount !== null) ? p.default_amount : (p.amount !== undefined && p.amount !== null) ? p.amount : "";
+  document.getElementById("productFormAmount").value = existingAmt;
   document.getElementById("productFormDescription").value = p.description || "";
   productModalInstance.show();
 };
@@ -316,6 +336,7 @@ async function handleProductFormSubmit(e) {
     default_warranty_months: parseInt(document.getElementById("productFormWarranty").value, 10),
     default_validity_months: parseInt(document.getElementById("productFormValidity").value, 10),
     default_amount: isNaN(amtVal) ? 0 : amtVal,
+    amount: isNaN(amtVal) ? 0 : amtVal,
     duration_type: document.getElementById("productFormDurationType").value,
     description: document.getElementById("productFormDescription").value.trim()
   };
@@ -324,16 +345,22 @@ async function handleProductFormSubmit(e) {
   saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving...`;
 
   try {
+    let res;
     if (id) {
-      await window.warrantyService.updateProduct(id, productData);
+      res = await window.warrantyService.updateProduct(id, productData);
     } else {
-      await window.warrantyService.createProduct(productData);
+      res = await window.warrantyService.createProduct(productData);
     }
+
+    if (res && res.error) {
+      throw res.error;
+    }
+
     productModalInstance.hide();
     await loadProducts();
   } catch (err) {
     console.error("Product save error:", err);
-    alert("Error saving product: " + err.message);
+    alert("Error saving product: " + (err.message || err.details || "Please check database connection."));
   } finally {
     saveBtn.disabled = false;
     saveBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Save Product`;
@@ -588,7 +615,7 @@ Notes : ${record.notes || "Renewal reminder"}
 Please renew your service to continue uninterrupted access.
 thanks for choose Foxzen`;
 
-  return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
 }
 
 function generateTelegramUrl(record) {
@@ -893,30 +920,56 @@ function showPostSaveOutput(record) {
   const actFormatted = formatDate(pDate);
   const expiryFormatted = formatDate(expiry);
   const notesText = record.notes || "Standard License";
+  const custName = (record.customer_name && record.customer_name.trim() && record.customer_name !== "Customer")
+    ? record.customer_name.trim()
+    : "Valued Customer";
+
+  const amtFormatted = (record.amount !== undefined && record.amount !== null && parseFloat(record.amount) > 0)
+    ? `💰 *Amount Paid:* ₹${parseFloat(record.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`
+    : "";
 
   const outputFormattedText = 
-`Product Name : ${record.product_name}
-activation date : ${actFormatted}
-Valid till date : ${expiryFormatted}
-Notes : ${notesText}
-thanks for choose Foxzen`;
+`🎉 *OFFICIAL LICENSE ACTIVATION - FOXZEN*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 *Customer Name:* ${custName}
+💻 *Product Name:* ${record.product_name}
+🔑 *Serial Number:* ${record.serial_number}
+📅 *Activation Date:* ${actFormatted}
+⏳ *Valid Till:* ${expiryFormatted}
+${amtFormatted}📝 *Notes:* ${notesText}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 *Check Status & Download Official Certificate:*
+👉 https://www.verifymywarranty.com/
+
+💬 *Need Help or Renewal?*
+Feel free to reply to this message anytime!
+
+✨ *Thank You for Choosing FOXZEN!*`;
 
   document.getElementById("postSaveOutputText").textContent = outputFormattedText;
 
-  // Configure WhatsApp & Telegram links
+  // Configure WhatsApp & Telegram links with the exact activation confirmation text
   const waBtn = document.getElementById("postSaveWhatsappBtn");
   const tgBtn = document.getElementById("postSaveTelegramBtn");
 
   if (record.customer_mobile && record.customer_mobile.trim()) {
-    waBtn.href = generateWhatsAppUrl(record);
+    let phone = String(record.customer_mobile || "").trim().replace(/[^0-9]/g, "");
+    if (phone.length === 10) {
+      phone = "91" + phone;
+    }
+    waBtn.href = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(outputFormattedText)}`;
     waBtn.classList.remove("disabled", "opacity-50");
   } else {
     waBtn.href = "javascript:void(0)";
     waBtn.classList.add("disabled", "opacity-50");
   }
 
-  if ((record.telegram_id && record.telegram_id.trim()) || (record.customer_mobile && record.customer_mobile.trim())) {
-    tgBtn.href = generateTelegramUrl(record);
+  if (record.telegram_id && record.telegram_id.trim()) {
+    const cleanUser = record.telegram_id.replace(/^@/, "").trim();
+    tgBtn.href = `https://t.me/${cleanUser}`;
+    tgBtn.classList.remove("disabled", "opacity-50");
+  } else if (record.customer_mobile && record.customer_mobile.trim()) {
+    tgBtn.href = `https://t.me/share/url?url=&text=${encodeURIComponent(outputFormattedText)}`;
     tgBtn.classList.remove("disabled", "opacity-50");
   } else {
     tgBtn.href = "javascript:void(0)";
@@ -1940,4 +1993,506 @@ window.copySecSql = function () {
     }
   });
 };
+
+// ===========================================================================
+// SECTION 6: LEADS & CLIENT ENQUIRIES MANAGEMENT
+// ===========================================================================
+
+function formatLeadDate(dateStr) {
+  if (!dateStr) return "N/A";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return (
+      d.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      }) +
+      ", " +
+      d.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      })
+    );
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+function getPlanBadgeClass(planName) {
+  const p = (planName || "").toLowerCase();
+  if (p.includes("monthly") || p.includes("99")) {
+    return "bg-secondary";
+  }
+  if (p.includes("yearly") || p.includes("899")) {
+    return "bg-primary";
+  }
+  if (p.includes("lifetime") || p.includes("9,999") || p.includes("9999")) {
+    return "bg-dark text-warning border border-warning";
+  }
+  return "bg-info text-dark";
+}
+
+function updateLeadsKpiCards() {
+  const totalEl = document.getElementById("leadStatTotal");
+  const newEl = document.getElementById("leadStatNew");
+  const contactedEl = document.getElementById("leadStatContacted");
+  const convertedEl = document.getElementById("leadStatConverted");
+  const badgeEl = document.getElementById("leadsNavBadge");
+
+  const total = allLeads.length;
+  const newCount = allLeads.filter(
+    (l) => (l.status || "New").toLowerCase() === "new"
+  ).length;
+  const contactedCount = allLeads.filter(
+    (l) => (l.status || "").toLowerCase() === "contacted"
+  ).length;
+  const convertedCount = allLeads.filter(
+    (l) => (l.status || "").toLowerCase() === "converted"
+  ).length;
+
+  if (totalEl) totalEl.textContent = total;
+  if (newEl) newEl.textContent = newCount;
+  if (contactedEl) contactedEl.textContent = contactedCount;
+  if (convertedEl) convertedEl.textContent = convertedCount;
+
+  if (badgeEl) {
+    if (newCount > 0) {
+      badgeEl.textContent = newCount;
+      badgeEl.classList.remove("d-none");
+    } else {
+      badgeEl.classList.add("d-none");
+    }
+  }
+}
+
+window.loadLeads = async function () {
+  try {
+    if (window.warrantyService && typeof window.warrantyService.getAllLeads === "function") {
+      const res = await window.warrantyService.getAllLeads();
+      allLeads = (res && res.data) ? res.data : (Array.isArray(res) ? res : []);
+    } else {
+      allLeads = [];
+    }
+  } catch (err) {
+    console.error("Failed to load leads:", err);
+    allLeads = [];
+  }
+
+  updateLeadsKpiCards();
+  renderLeadsTable();
+};
+
+function generateLeadWhatsAppReplyUrl(lead) {
+  const rawPhone = (lead.phone || "").replace(/\D/g, "");
+  const phone = rawPhone.length === 10 ? "91" + rawPhone : rawPhone;
+  const name = lead.first_name || lead.name || lead.full_name || "Client";
+  const plan = lead.plan || lead.plan_interested || "License Setup";
+
+  const message =
+    `Hello ${name}! 👋\n\n` +
+    `Thank you for your enquiry on VerifyMyWarranty regarding the *${plan}*.\n\n` +
+    (lead.message ? `Regarding your requirement:\n"${lead.message}"\n\n` : "") +
+    `We would love to help you get your automated warranty & license verification portal setup immediately.\n\n` +
+    `Do you have any specific domain or questions before we get started?`;
+
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
+}
+
+function generateLeadTelegramReplyUrl(lead) {
+  const tg = (lead.telegram || "").replace(/^@/, "").trim();
+  if (!tg) return null;
+  return `https://t.me/${tg}`;
+}
+
+window.renderLeadsTable = function () {
+  const tbody = document.getElementById("leadsTableBody");
+  const emptyState = document.getElementById("emptyLeadsState");
+  const searchInput = document.getElementById("leadsTableSearch");
+  const statusFilterEl = document.getElementById("leadStatusFilter");
+
+  if (!tbody) return;
+
+  const query = (searchInput ? searchInput.value : "").toLowerCase().trim();
+  const statusFilter = (statusFilterEl ? statusFilterEl.value : "").trim().toLowerCase();
+
+  const filtered = allLeads.filter((lead) => {
+    // 1. Status Filter
+    if (statusFilter) {
+      const st = (lead.status || "New").toLowerCase();
+      if (st !== statusFilter) return false;
+    }
+
+    // 2. Query Search
+    if (!query) return true;
+    const name = (lead.name || lead.full_name || "").toLowerCase();
+    const firstName = (lead.first_name || "").toLowerCase();
+    const lastName = (lead.last_name || "").toLowerCase();
+    const phone = (lead.phone || "").toLowerCase();
+    const telegram = (lead.telegram || "").toLowerCase();
+    const email = (lead.email || "").toLowerCase();
+    const biz = (lead.business_name || "").toLowerCase();
+    const plan = (lead.plan || lead.plan_interested || "").toLowerCase();
+    const notes = (lead.message || lead.notes || "").toLowerCase();
+
+    return (
+      name.includes(query) ||
+      firstName.includes(query) ||
+      lastName.includes(query) ||
+      phone.includes(query) ||
+      telegram.includes(query) ||
+      email.includes(query) ||
+      biz.includes(query) ||
+      plan.includes(query) ||
+      notes.includes(query)
+    );
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = "";
+    if (emptyState) emptyState.classList.remove("d-none");
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add("d-none");
+
+  let html = "";
+  filtered.forEach((lead) => {
+    const rawPhone = (lead.phone || "").replace(/\D/g, "");
+    const cleanPhone = rawPhone.length === 10 ? "91" + rawPhone : rawPhone;
+    const waChatUrl = lead.phone ? generateLeadWhatsAppReplyUrl(lead) : null;
+    const tgChatUrl = generateLeadTelegramReplyUrl(lead);
+    const cleanTg = (lead.telegram || "").replace(/^@/, "").trim();
+    const st = (lead.status || "New").toLowerCase();
+
+    let statusBadgeColor = "secondary";
+    if (st === "new") statusBadgeColor = "danger";
+    else if (st === "contacted") statusBadgeColor = "warning";
+    else if (st === "converted") statusBadgeColor = "success";
+    else if (st === "closed") statusBadgeColor = "secondary";
+
+    const leadName = lead.name || ((lead.first_name || "") + " " + (lead.last_name || "")).trim() || "N/A";
+    const leadPlan = lead.plan || lead.plan_interested || "Custom";
+    const leadAmount = (lead.amount !== undefined && lead.amount !== null && lead.amount !== "")
+      ? lead.amount
+      : (lead.plan_amount || 0);
+    const leadNotes = lead.message || lead.notes || "";
+
+    // Contact channels badges
+    const contactBadges = [];
+    if (lead.phone && lead.phone.trim()) {
+      contactBadges.push(`
+        <a href="https://wa.me/${cleanPhone}" target="_blank" class="badge bg-success bg-opacity-10 text-success border border-success-subtle text-decoration-none d-inline-flex align-items-center mb-1 me-1" title="Chat on WhatsApp">
+          <i class="bi bi-whatsapp me-1"></i>${escapeHtml(lead.phone)}
+        </a>
+      `);
+    }
+    if (cleanTg) {
+      contactBadges.push(`
+        <a href="https://t.me/${cleanTg}" target="_blank" class="badge bg-info bg-opacity-10 text-primary border border-info-subtle text-decoration-none d-inline-flex align-items-center mb-1 me-1" title="Open Telegram">
+          <i class="bi bi-telegram me-1"></i>@${escapeHtml(cleanTg)}
+        </a>
+      `);
+    }
+    if (lead.email && lead.email.trim()) {
+      contactBadges.push(`
+        <a href="mailto:${escapeHtml(lead.email)}" class="badge bg-secondary bg-opacity-10 text-dark border text-decoration-none d-inline-flex align-items-center mb-1 me-1" title="Send Email">
+          <i class="bi bi-envelope me-1"></i>${escapeHtml(lead.email)}
+        </a>
+      `);
+    }
+    if (contactBadges.length === 0) {
+      contactBadges.push(`<span class="text-muted small fst-italic">No contact info</span>`);
+    }
+
+    html += `
+      <tr>
+        <td>
+          <div class="fw-bold text-dark">${escapeHtml(leadName)}</div>
+          ${
+            lead.business_name
+              ? `<small class="text-primary d-block"><i class="bi bi-briefcase me-1"></i>${escapeHtml(
+                  lead.business_name
+                )}</small>`
+              : ""
+          }
+        </td>
+
+        <td>
+          <div class="d-flex flex-wrap align-items-center">
+            ${contactBadges.join("")}
+          </div>
+        </td>
+
+        <td>
+          <span class="badge ${getPlanBadgeClass(leadPlan)} px-2 py-1">
+            ${escapeHtml(leadPlan)}
+          </span>
+          <div class="fw-bold text-dark mt-1">
+            ${Number(leadAmount) > 0 ? `₹${Number(leadAmount).toLocaleString("en-IN")}` : "Custom"}
+          </div>
+        </td>
+
+        <td>
+          <div class="p-2 bg-light border rounded-3 small text-dark" style="max-width: 270px; min-width: 190px;">
+            <div class="fw-medium text-truncate" title="${escapeHtml(leadNotes || 'No message provided')}">
+              <i class="bi bi-chat-quote-fill text-primary me-1"></i>${escapeHtml(leadNotes || "No query message entered")}
+            </div>
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary fw-semibold mt-1" style="font-size: 0.76rem;" onclick="openLeadMessageModal('${lead.id}')">
+              <i class="bi bi-eye-fill me-1"></i>Read Full Query
+            </button>
+          </div>
+        </td>
+
+        <td>
+          <small class="text-muted font-monospace d-block">${formatLeadDate(lead.created_at)}</small>
+        </td>
+
+        <td>
+          <select class="form-select form-select-sm fw-semibold border-${statusBadgeColor} text-${statusBadgeColor}" 
+                  style="width: 125px; font-size: 0.82rem;"
+                  onchange="updateLeadStatus('${lead.id}', this.value)">
+            <option value="New" ${st === "new" ? "selected" : ""}>🔴 New</option>
+            <option value="Contacted" ${st === "contacted" ? "selected" : ""}>🟡 Contacted</option>
+            <option value="Converted" ${st === "converted" ? "selected" : ""}>🟢 Converted</option>
+            <option value="Closed" ${st === "closed" ? "selected" : ""}>⚪ Closed</option>
+          </select>
+        </td>
+
+        <td class="text-end">
+          <div class="d-flex justify-content-end gap-1">
+            ${
+              waChatUrl
+                ? `<a href="${waChatUrl}" target="_blank" class="btn btn-outline-success btn-sm rounded-pill px-2 shadow-sm" title="Chat on WhatsApp">
+                    <i class="bi bi-whatsapp"></i>
+                   </a>`
+                : ""
+            }
+            ${
+              tgChatUrl
+                ? `<a href="${tgChatUrl}" target="_blank" class="btn btn-outline-info btn-sm rounded-pill px-2 shadow-sm text-primary" title="Open Telegram">
+                    <i class="bi bi-telegram"></i>
+                   </a>`
+                : ""
+            }
+            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill px-2 shadow-sm" onclick="openLeadMessageModal('${lead.id}')" title="View Full Query & Contact Info">
+              <i class="bi bi-chat-left-text"></i>
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm rounded-circle" style="width: 32px; height: 32px; padding: 0;" onclick="deleteLeadRecord('${lead.id}')" title="Delete Lead">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+};
+
+window.openLeadMessageModal = function (leadId) {
+  const lead = allLeads.find((l) => String(l.id) === String(leadId));
+  if (!lead) return;
+
+  currentModalLeadId = leadId;
+
+  const leadName = lead.name || ((lead.first_name || "") + " " + (lead.last_name || "")).trim() || "Client";
+  const leadPlan = lead.plan || lead.plan_interested || "License Setup";
+  const leadAmount = (lead.amount !== undefined && lead.amount !== null && lead.amount !== "")
+    ? lead.amount
+    : (lead.plan_amount || 0);
+  const leadNotes = lead.message || lead.notes || "(No specific query entered)";
+
+  const nameEl = document.getElementById("modalLeadName");
+  const bizEl = document.getElementById("modalLeadBusiness");
+  const planEl = document.getElementById("modalLeadPlanBadge");
+  const amountEl = document.getElementById("modalLeadAmount");
+  const dateEl = document.getElementById("modalLeadReceivedDate");
+  const queryEl = document.getElementById("modalLeadQueryBody");
+  const actionsEl = document.getElementById("modalLeadContactActions");
+  const statusSelect = document.getElementById("modalLeadStatusSelect");
+
+  if (nameEl) nameEl.textContent = leadName;
+  if (bizEl) bizEl.textContent = lead.business_name ? `Store / Business: ${lead.business_name}` : "Individual Client";
+  if (planEl) {
+    planEl.textContent = leadPlan;
+    planEl.className = `badge ${getPlanBadgeClass(leadPlan)} px-3 py-2 rounded-pill fs-6`;
+  }
+  if (amountEl) {
+    amountEl.textContent = Number(leadAmount) > 0 ? `₹${Number(leadAmount).toLocaleString("en-IN")}` : "Custom Quote";
+  }
+  if (dateEl) dateEl.textContent = `Enquiry Received: ${formatLeadDate(lead.created_at)}`;
+  if (queryEl) queryEl.textContent = leadNotes;
+
+  if (statusSelect) {
+    const st = (lead.status || "New").toLowerCase();
+    for (let i = 0; i < statusSelect.options.length; i++) {
+      if (statusSelect.options[i].value.toLowerCase() === st) {
+        statusSelect.selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  // Generate actionable contact buttons inside modal
+  if (actionsEl) {
+    const rawPhone = (lead.phone || "").replace(/\D/g, "");
+    const cleanPhone = rawPhone.length === 10 ? "91" + rawPhone : rawPhone;
+    const cleanTg = (lead.telegram || "").replace(/^@/, "").trim();
+    const waUrl = lead.phone ? generateLeadWhatsAppReplyUrl(lead) : null;
+
+    let actionsHtml = "";
+
+    if (waUrl) {
+      actionsHtml += `
+        <a href="${waUrl}" target="_blank" class="btn btn-whatsapp py-2 px-3 rounded-pill fw-semibold shadow-sm d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-whatsapp me-2"></i>Reply via WhatsApp (${escapeHtml(lead.phone)})</span>
+          <i class="bi bi-arrow-right"></i>
+        </a>
+      `;
+    }
+
+    if (cleanTg) {
+      actionsHtml += `
+        <a href="https://t.me/${cleanTg}" target="_blank" class="btn btn-outline-primary py-2 px-3 rounded-pill fw-semibold d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-telegram me-2 text-info"></i>Open Telegram Chat (@${escapeHtml(cleanTg)})</span>
+          <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+      `;
+    }
+
+    if (lead.email) {
+      const emailSubj = encodeURIComponent(`Regarding your ${leadPlan} inquiry - VerifyMyWarranty`);
+      const emailBody = encodeURIComponent(`Hello ${leadName},\n\nThank you for reaching out to us regarding ${leadPlan}...\n\nYour message: "${leadNotes}"`);
+      actionsHtml += `
+        <a href="mailto:${escapeHtml(lead.email)}?subject=${emailSubj}&body=${emailBody}" class="btn btn-outline-secondary py-2 px-3 rounded-pill fw-semibold d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-envelope me-2"></i>Send Email (${escapeHtml(lead.email)})</span>
+          <i class="bi bi-send"></i>
+        </a>
+      `;
+    }
+
+    if (!actionsHtml) {
+      actionsHtml = `<div class="text-muted small fst-italic p-2 bg-light rounded">No contact channel was provided in this enquiry.</div>`;
+    }
+
+    actionsEl.innerHTML = actionsHtml;
+  }
+
+  if (leadMessageModalInstance) {
+    leadMessageModalInstance.show();
+  } else {
+    const m = bootstrap.Modal.getOrCreateInstance(document.getElementById("leadMessageModal"));
+    m.show();
+  }
+};
+
+window.onModalLeadStatusChange = async function (newStatus) {
+  if (!currentModalLeadId) return;
+  await window.updateLeadStatus(currentModalLeadId, newStatus);
+};
+
+window.updateLeadStatus = async function (leadId, newStatus) {
+  try {
+    if (window.warrantyService && typeof window.warrantyService.updateLeadStatus === "function") {
+      await window.warrantyService.updateLeadStatus(leadId, newStatus);
+    }
+
+    const lead = allLeads.find((l) => String(l.id) === String(leadId));
+    if (lead) {
+      lead.status = newStatus;
+    }
+
+    updateLeadsKpiCards();
+    renderLeadsTable();
+  } catch (err) {
+    console.error("Failed to update lead status:", err);
+    alert("Could not update lead status. Please try again.");
+  }
+};
+
+window.deleteLeadRecord = async function (leadId) {
+  const lead = allLeads.find((l) => String(l.id) === String(leadId));
+  const leadName = lead ? (lead.name || lead.full_name) : "this lead";
+
+  if (!confirm(`Are you sure you want to delete the enquiry from "${leadName}"?`)) {
+    return;
+  }
+
+  try {
+    if (window.warrantyService && typeof window.warrantyService.deleteLead === "function") {
+      await window.warrantyService.deleteLead(leadId);
+    }
+
+    allLeads = allLeads.filter((l) => String(l.id) !== String(leadId));
+    updateLeadsKpiCards();
+    renderLeadsTable();
+  } catch (err) {
+    console.error("Failed to delete lead:", err);
+    alert("Could not delete lead. Please try again.");
+  }
+};
+
+window.exportLeadsToCSV = function () {
+  if (!allLeads || allLeads.length === 0) {
+    alert("No leads available to export.");
+    return;
+  }
+
+  const headers = [
+    "Lead ID",
+    "First Name",
+    "Last Name",
+    "Customer Name",
+    "WhatsApp Phone",
+    "Telegram Username",
+    "Email",
+    "Business / Store",
+    "Interested Plan",
+    "Amount (INR)",
+    "Status",
+    "Customer Query / Requirements",
+    "Created Date"
+  ];
+
+  const escapeCSV = (val) => {
+    if (val === null || val === undefined) return '""';
+    const s = String(val).replace(/"/g, '""');
+    return `"${s}"`;
+  };
+
+  const rows = allLeads.map((l) => [
+    escapeCSV(l.id),
+    escapeCSV(l.first_name || ""),
+    escapeCSV(l.last_name || ""),
+    escapeCSV(l.name || l.full_name || ""),
+    escapeCSV(l.phone || ""),
+    escapeCSV(l.telegram || ""),
+    escapeCSV(l.email || ""),
+    escapeCSV(l.business_name || ""),
+    escapeCSV(l.plan || l.plan_interested || ""),
+    escapeCSV(l.amount !== undefined ? l.amount : (l.plan_amount || 0)),
+    escapeCSV(l.status || "New"),
+    escapeCSV(l.message || l.notes || ""),
+    escapeCSV(l.created_at || "")
+  ]);
+
+  const csvContent =
+    "data:text/csv;charset=utf-8," +
+    [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute(
+    "download",
+    `VerifyMyWarranty_Leads_${new Date().toISOString().slice(0, 10)}.csv`
+  );
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
 

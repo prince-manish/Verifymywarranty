@@ -330,3 +330,59 @@ VALUES (
     now()
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- 8. Customer Leads & License Enquiries Table
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(150) NOT NULL,
+    first_name VARCHAR(100),
+    last_name VARCHAR(100),
+    phone VARCHAR(50),
+    telegram VARCHAR(100),
+    email VARCHAR(150),
+    plan VARCHAR(100) NOT NULL,            -- 'Monthly Plan (₹99)', 'Yearly Plan (₹899)', 'Lifetime Setup (₹9,999)'
+    amount NUMERIC(10, 2) DEFAULT 0.00,
+    business_name VARCHAR(150),
+    message TEXT,                          -- Customer query / requirements
+    status VARCHAR(20) NOT NULL DEFAULT 'new', -- 'new', 'contacted', 'converted', 'closed'
+    source VARCHAR(50) DEFAULT 'website_pricing',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Ensure columns exist if table was previously created
+ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);
+ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);
+ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS telegram VARCHAR(100);
+
+-- Fast lookup indexes
+CREATE INDEX IF NOT EXISTS idx_leads_created_at ON public.leads (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON public.leads (status);
+CREATE INDEX IF NOT EXISTS idx_leads_phone ON public.leads (phone);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;
+
+-- Allow anyone on the public website to submit new enquiries
+DROP POLICY IF EXISTS "Public can submit enquiries" ON public.leads;
+CREATE POLICY "Public can submit enquiries"
+ON public.leads
+FOR INSERT
+TO anon, authenticated
+WITH CHECK (true);
+
+-- Allow admins full access to view, update, and manage leads
+DROP POLICY IF EXISTS "Admins have full access to leads" ON public.leads;
+CREATE POLICY "Admins have full access to leads"
+ON public.leads
+FOR ALL
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+-- Notify PostgREST to reload schema cache
+NOTIFY pgrst, 'reload schema';
+

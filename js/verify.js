@@ -394,3 +394,236 @@ window.openCertificateModal = function (product) {
   const modal = new bootstrap.Modal(document.getElementById("certificateModal"));
   modal.show();
 };
+
+// ============================================================================
+// LEAD ENQUIRY MODAL & SUBMISSION HANDLERS
+// ============================================================================
+
+window.openLeadEnquiryModal = function (planName, amount) {
+  const planInput = document.getElementById("leadPlanInput");
+  const amountInput = document.getElementById("leadAmountInput");
+  const nameLabel = document.getElementById("leadModalPlanName");
+  const priceBadge = document.getElementById("leadModalPlanPrice");
+  const dropdown = document.getElementById("leadPlanDropdown");
+
+  if (planInput) planInput.value = planName || "Yearly Plan (₹899)";
+  if (amountInput) amountInput.value = amount || 899;
+  if (nameLabel) nameLabel.textContent = planName || "Yearly Plan (₹899)";
+  if (priceBadge) {
+    priceBadge.textContent = amount > 0 ? `₹${Number(amount).toLocaleString("en-IN")}` : "Custom";
+  }
+
+  if (dropdown && planName) {
+    for (let i = 0; i < dropdown.options.length; i++) {
+      if (dropdown.options[i].value === planName) {
+        dropdown.selectedIndex = i;
+        break;
+      }
+    }
+  }
+
+  if (window.clearContactValidationError) {
+    window.clearContactValidationError();
+  }
+
+  const modalEl = document.getElementById("leadEnquiryModal");
+  if (modalEl && window.bootstrap && window.bootstrap.Modal) {
+    try {
+      const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+      modal.show();
+    } catch (e) {
+      try {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+      } catch (err) {}
+    }
+  }
+};
+
+window.onLeadPlanDropdownChange = function (selectedPlanVal) {
+  const dropdown = document.getElementById("leadPlanDropdown");
+  const planInput = document.getElementById("leadPlanInput");
+  const amountInput = document.getElementById("leadAmountInput");
+  const nameLabel = document.getElementById("leadModalPlanName");
+  const priceBadge = document.getElementById("leadModalPlanPrice");
+
+  if (!dropdown) return;
+  const selectedOption = dropdown.options[dropdown.selectedIndex];
+  const amount = selectedOption ? Number(selectedOption.getAttribute("data-amount") || 0) : 0;
+
+  if (planInput) planInput.value = selectedPlanVal;
+  if (amountInput) amountInput.value = amount;
+  if (nameLabel) nameLabel.textContent = selectedPlanVal;
+  if (priceBadge) {
+    priceBadge.textContent = amount > 0 ? `₹${amount.toLocaleString("en-IN")}` : "Custom";
+  }
+};
+
+window.onLeadNameChange = function () {
+  const fn = document.getElementById("leadFirstNameInput")?.value?.trim() || "";
+  const ln = document.getElementById("leadLastNameInput")?.value?.trim() || "";
+  const hiddenName = document.getElementById("leadNameInput");
+  if (hiddenName) hiddenName.value = `${fn} ${ln}`.trim() || fn;
+};
+
+window.clearContactValidationError = function () {
+  const alertEl = document.getElementById("contactValidationErrorAlert");
+  if (alertEl) alertEl.classList.add("d-none");
+};
+
+window.handleLeadFormSubmit = async function (e) {
+  if (e) e.preventDefault();
+
+  const btnSubmit = document.getElementById("btnSubmitLead");
+  const firstNameInput = document.getElementById("leadFirstNameInput");
+  const lastNameInput = document.getElementById("leadLastNameInput");
+  const legacyNameInput = document.getElementById("leadNameInput");
+  const phoneInput = document.getElementById("leadPhoneInput");
+  const telegramInput = document.getElementById("leadTelegramInput");
+  const emailInput = document.getElementById("leadEmailInput");
+  const businessInput = document.getElementById("leadBusinessInput");
+  const planInput = document.getElementById("leadPlanInput");
+  const amountInput = document.getElementById("leadAmountInput");
+  const messageInput = document.getElementById("leadMessageInput");
+  const validationAlert = document.getElementById("contactValidationErrorAlert");
+
+  let firstName = firstNameInput ? firstNameInput.value.trim() : "";
+  let lastName = lastNameInput ? lastNameInput.value.trim() : "";
+  let fullName = `${firstName} ${lastName}`.trim();
+
+  // If first name input empty, fallback to legacy name input
+  if (!fullName && legacyNameInput && legacyNameInput.value.trim()) {
+    fullName = legacyNameInput.value.trim();
+    const parts = fullName.split(" ");
+    firstName = parts[0] || fullName;
+    lastName = parts.slice(1).join(" ") || "";
+  }
+
+  const phone = phoneInput ? phoneInput.value.trim() : "";
+  const telegram = telegramInput ? telegramInput.value.trim() : "";
+  const email = emailInput ? emailInput.value.trim() : "";
+  const business = businessInput ? businessInput.value.trim() : "";
+  const plan = planInput ? planInput.value.trim() : "Yearly Plan (₹899)";
+  const amount = amountInput ? Number(amountInput.value) || 0 : 0;
+  const message = messageInput ? messageInput.value.trim() : "";
+
+  // 1. Name required
+  if (!firstName && !fullName) {
+    if (firstNameInput) firstNameInput.focus();
+    alert("Please enter your First Name.");
+    return;
+  }
+
+  // 2. ANY ONE contact method is compulsory (WhatsApp OR Telegram OR Email)
+  const hasPhone = phone.length > 0;
+  const hasTelegram = telegram.length > 0;
+  const hasEmail = email.length > 0;
+
+  if (!hasPhone && !hasTelegram && !hasEmail) {
+    if (validationAlert) validationAlert.classList.remove("d-none");
+    if (phoneInput) phoneInput.focus();
+    return;
+  } else {
+    if (validationAlert) validationAlert.classList.add("d-none");
+  }
+
+  // 3. Query / requirements message required
+  if (!message) {
+    if (messageInput) messageInput.focus();
+    alert("Please enter your query or requirements.");
+    return;
+  }
+
+  const originalBtnHtml = btnSubmit ? btnSubmit.innerHTML : "";
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status"></span> Submitting Query...`;
+  }
+
+  try {
+    const leadData = {
+      name: fullName,
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      phone: phone,
+      telegram: telegram,
+      email: email,
+      business_name: business,
+      plan: plan,
+      plan_interested: plan,
+      amount: amount,
+      plan_amount: amount,
+      message: message,
+      notes: message,
+      status: "new",
+      source: "website_pricing"
+    };
+
+    if (window.warrantyService && typeof window.warrantyService.createLead === "function") {
+      await window.warrantyService.createLead(leadData);
+    }
+
+    // Close enquiry modal
+    const enquiryModalEl = document.getElementById("leadEnquiryModal");
+    if (enquiryModalEl && window.bootstrap) {
+      const modal = bootstrap.Modal.getInstance(enquiryModalEl);
+      if (modal) modal.hide();
+    }
+
+    // Populate success popup
+    const succPlan = document.getElementById("successLeadPlanText");
+    const succName = document.getElementById("successLeadName");
+    const succContact = document.getElementById("successLeadContact");
+    const succQuery = document.getElementById("successLeadQuery");
+    const waRedirectBtn = document.getElementById("successWhatsAppRedirectBtn");
+
+    if (succPlan) succPlan.textContent = plan;
+    if (succName) succName.textContent = fullName;
+
+    // Contact channels display
+    const contactsList = [];
+    if (phone) contactsList.push(`📱 WhatsApp: ${phone}`);
+    if (telegram) contactsList.push(`✈️ Telegram: ${telegram}`);
+    if (email) contactsList.push(`✉️ Email: ${email}`);
+    if (succContact) succContact.innerHTML = contactsList.join("<br>");
+    if (succQuery) succQuery.textContent = message;
+
+    if (waRedirectBtn) {
+      const waNumber = (window.CONFIG && window.CONFIG.SUPPORT_WHATSAPP) || "919876543210";
+      const cleanPhone = waNumber.replace(/\D/g, "");
+      const waText = encodeURIComponent(
+        `Hello! I just submitted an inquiry on VerifyMyWarranty.\n\n` +
+        `👤 Name: ${fullName}\n` +
+        (phone ? `📱 WhatsApp: ${phone}\n` : "") +
+        (telegram ? `✈️ Telegram: ${telegram}\n` : "") +
+        (email ? `✉️ Email: ${email}\n` : "") +
+        (business ? `🏢 Business: ${business}\n` : "") +
+        `💎 Plan: ${plan}\n` +
+        `📝 Query: ${message}\n\n` +
+        `Please share setup and payment details!`
+      );
+      waRedirectBtn.href = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${waText}`;
+    }
+
+    // Reset form
+    const formEl = document.getElementById("leadEnquiryForm");
+    if (formEl) formEl.reset();
+
+    // Show success modal
+    const successModalEl = document.getElementById("leadSuccessModal");
+    if (successModalEl && window.bootstrap) {
+      const succModal = bootstrap.Modal.getOrCreateInstance(successModalEl);
+      succModal.show();
+    }
+  } catch (err) {
+    console.error("Error submitting lead:", err);
+    alert("Could not submit enquiry at the moment. Please reach out to us directly on WhatsApp!");
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = originalBtnHtml;
+    }
+  }
+};
+
