@@ -86,7 +86,21 @@ document.addEventListener("DOMContentLoaded", function () {
           </div>
         `;
         actionButtons.style.display = "block";
+        if (typeof gtag === "function") {
+          gtag("event", "search", {
+            search_term: query,
+            results_found: 0
+          });
+        }
         return;
+      }
+
+      // Track successful search in Google Analytics
+      if (typeof gtag === "function") {
+        gtag("event", "search", {
+          search_term: query,
+          results_found: data.length
+        });
       }
 
       // Display found results (supports multiple if customer owns multiple products)
@@ -339,6 +353,13 @@ function escapeHtml(str) {
  * Open Certificate Modal
  */
 window.openCertificateModal = function (product) {
+  if (typeof gtag === "function") {
+    gtag("event", "view_certificate", {
+      product_name: product?.product_name || "Unknown",
+      serial_number: product?.serial_number || "Unknown"
+    });
+  }
+
   const pDate = new Date(product.purchase_date);
   const wExp = calculateExpiry(pDate, product.warranty_months, product.warranty_type || "month");
   const isWActive = new Date() <= wExp && product.status !== "void";
@@ -562,6 +583,15 @@ window.handleLeadFormSubmit = async function (e) {
 
     if (window.warrantyService && typeof window.warrantyService.createLead === "function") {
       await window.warrantyService.createLead(leadData);
+    }
+
+    // Track lead enquiry in Google Analytics
+    if (typeof gtag === "function") {
+      gtag("event", "generate_lead", {
+        currency: "INR",
+        value: amount,
+        plan_name: plan
+      });
     }
 
     // Close enquiry modal

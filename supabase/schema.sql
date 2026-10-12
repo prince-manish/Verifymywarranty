@@ -386,3 +386,49 @@ WITH CHECK (true);
 -- Notify PostgREST to reload schema cache
 NOTIFY pgrst, 'reload schema';
 
+-- ============================================================================
+-- 7. Vendor Sourcing & Cost Columns for Warranties (Net Profit & Support)
+-- ============================================================================
+ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) DEFAULT 'own';
+ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(150);
+ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_phone VARCHAR(50);
+ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2) DEFAULT 0.00;
+ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_ref VARCHAR(100);
+
+CREATE INDEX IF NOT EXISTS idx_warranties_vendor_name ON public.warranties (vendor_name);
+CREATE INDEX IF NOT EXISTS idx_warranties_source_type ON public.warranties (source_type);
+
+-- ============================================================================
+-- 8. Diary & Secret Notes Table (Credentials, Logins, Calculations)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.diary_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255) NOT NULL,
+    category VARCHAR(50) NOT NULL DEFAULT 'general', -- 'credentials', 'calculations', 'general'
+    username VARCHAR(255),
+    secret_key TEXT,
+    content TEXT,
+    is_pinned BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Fast lookup indexes
+CREATE INDEX IF NOT EXISTS idx_diary_created_at ON public.diary_notes (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_diary_category ON public.diary_notes (category);
+CREATE INDEX IF NOT EXISTS idx_diary_pinned ON public.diary_notes (is_pinned);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.diary_notes ENABLE ROW LEVEL SECURITY;
+
+-- Allow full access for admin users
+DROP POLICY IF EXISTS "Admins have full access to diary" ON public.diary_notes;
+CREATE POLICY "Admins have full access to diary"
+ON public.diary_notes
+FOR ALL
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
+NOTIFY pgrst, 'reload schema';
+

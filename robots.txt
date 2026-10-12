@@ -1,0 +1,8 @@
+# Robots.txt for VerifyWarranty / Foxzen (https://foxzen.in)
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /admin/*
+
+# Search Engines Sitemap
+Sitemap: https://foxzen.in/sitemap.xml

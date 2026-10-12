@@ -1,0 +1,16 @@
+{
+  "name": "VerifyWarranty - Verify My Warranty",
+  "short_name": "VerifyWarranty",
+  "description": "Official Warranty & Product License Verification Portal",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a365d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

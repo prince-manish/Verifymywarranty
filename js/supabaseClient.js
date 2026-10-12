@@ -228,6 +228,32 @@ const DEFAULT_DEMO_LEADS = [
   }
 ];
 
+// Initial Seed Diary Notes (Credentials & Calculations)
+const DEFAULT_DEMO_DIARY_NOTES = [
+  {
+    id: "note-1",
+    title: "Techshup OTT - Supplier Rates & UPI",
+    category: "credentials",
+    username: "techshup@okaxis",
+    secret_key: "Vendor Mobile: +91 98765 43210",
+    content: "Plan A: ₹70 (Sell @ ₹100)\nNetflix 1M: ₹180\nAlways ping on WhatsApp before buying bulk codes.",
+    is_pinned: true,
+    created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
+    updated_at: new Date(Date.now() - 3600000 * 24).toISOString()
+  },
+  {
+    id: "note-2",
+    title: "Monthly Reselling Math & Targets",
+    category: "calculations",
+    username: "",
+    secret_key: "",
+    content: "Target for this month:\n100 Plan A @ ₹30 margin = ₹3,000\n30 Canva Pro @ ₹150 margin = ₹4,500\n20 Own In-House Setups @ ₹899 = ₹17,980\nEstimated Net Profit: ~₹25,480",
+    is_pinned: false,
+    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+    updated_at: new Date(Date.now() - 3600000 * 12).toISOString()
+  }
+];
+
 class WarrantyService {
   constructor() {
     this.client = null;
@@ -258,6 +284,22 @@ class WarrantyService {
     if (!localStorage.getItem("vmw_demo_products")) {
       localStorage.setItem("vmw_demo_products", JSON.stringify(DEFAULT_DEMO_PRODUCTS));
     }
+    if (!localStorage.getItem("foxzen_diary_notes")) {
+      localStorage.setItem("foxzen_diary_notes", JSON.stringify(DEFAULT_DEMO_DIARY_NOTES));
+    }
+  }
+
+  getDemoDiaryNotes() {
+    try {
+      const data = localStorage.getItem("foxzen_diary_notes");
+      return data ? JSON.parse(data) : DEFAULT_DEMO_DIARY_NOTES;
+    } catch (e) {
+      return DEFAULT_DEMO_DIARY_NOTES;
+    }
+  }
+
+  saveDemoDiaryNotes(list) {
+    localStorage.setItem("foxzen_diary_notes", JSON.stringify(list));
   }
 
   getDemoRecords() {
@@ -559,6 +601,37 @@ class WarrantyService {
       if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
         return { data: this.getDemoRecords(), error: null };
       }
+
+      // Merge local vendor/cost enrichment if Supabase table didn't have those columns yet
+      if (data && Array.isArray(data)) {
+        const demoMap = {};
+        this.getDemoRecords().forEach((d) => {
+          if (d.id) demoMap[d.id] = d;
+          if (d.serial_number) demoMap[d.serial_number] = d;
+        });
+        const enriched = data.map((item) => {
+          const match = demoMap[item.id] || demoMap[item.serial_number];
+          if (match) {
+            return {
+              source_type: item.source_type !== undefined ? item.source_type : (match.source_type || "own"),
+              vendor_name: item.vendor_name !== undefined ? item.vendor_name : (match.vendor_name || ""),
+              vendor_phone: item.vendor_phone !== undefined ? item.vendor_phone : (match.vendor_phone || ""),
+              cost_price: item.cost_price !== undefined ? item.cost_price : (match.cost_price || 0),
+              vendor_ref: item.vendor_ref !== undefined ? item.vendor_ref : (match.vendor_ref || ""),
+              ...item
+            };
+          }
+          return {
+            source_type: item.source_type || "own",
+            vendor_name: item.vendor_name || "",
+            vendor_phone: item.vendor_phone || "",
+            cost_price: item.cost_price || 0,
+            vendor_ref: item.vendor_ref || "",
+            ...item
+          };
+        });
+        return { data: enriched, error: null };
+      }
       return { data: data || [], error };
     } else {
       const list = this.getDemoRecords();
@@ -568,6 +641,11 @@ class WarrantyService {
 
   async createWarranty(record) {
     const newRecord = {
+      source_type: record.source_type || "own",
+      vendor_name: record.vendor_name || "",
+      vendor_phone: record.vendor_phone || "",
+      cost_price: record.cost_price !== undefined ? parseFloat(record.cost_price) || 0 : 0,
+      vendor_ref: record.vendor_ref || "",
       ...record,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -576,25 +654,42 @@ class WarrantyService {
     if (this.isLive) {
       let { data, error } = await this.client.from("warranties").insert([newRecord]).select();
 
-      // If 'amount' column not yet migrated in Supabase, retry without amount column safely
-      if (error && (error.message?.includes("amount") || error.code === "42703" || error.code === "PGRST204")) {
+      // If new columns not yet migrated in Supabase, retry without them safely
+      if (error && (
+        error.message?.includes("amount") ||
+        error.message?.includes("source_type") ||
+        error.message?.includes("vendor_name") ||
+        error.message?.includes("vendor_phone") ||
+        error.message?.includes("cost_price") ||
+        error.message?.includes("vendor_ref") ||
+        error.code === "42703" ||
+        error.code === "PGRST204"
+      )) {
         const fallbackPayload = { ...newRecord };
         delete fallbackPayload.amount;
+        delete fallbackPayload.source_type;
+        delete fallbackPayload.vendor_name;
+        delete fallbackPayload.vendor_phone;
+        delete fallbackPayload.cost_price;
+        delete fallbackPayload.vendor_ref;
+
         const retry = await this.client.from("warranties").insert([fallbackPayload]).select();
         if (!retry.error) {
-          data = retry.data;
+          data = retry.data ? [{ ...newRecord, ...retry.data[0] }] : [newRecord];
           error = null;
         }
       }
 
+      // Always maintain in local storage cache for instant offline & vendor sync
+      const list = this.getDemoRecords();
+      list.unshift(data && data[0] ? { ...newRecord, ...data[0] } : newRecord);
+      this.saveDemoRecords(list);
+
       if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
         newRecord.id = "demo-" + Date.now();
-        const list = this.getDemoRecords();
-        list.unshift(newRecord);
-        this.saveDemoRecords(list);
         return { data: newRecord, error: null };
       }
-      return { data: data ? data[0] : null, error };
+      return { data: data ? data[0] : newRecord, error };
     } else {
       newRecord.id = "demo-" + Date.now();
       const list = this.getDemoRecords();
@@ -614,10 +709,25 @@ class WarrantyService {
         .eq("id", id)
         .select();
 
-      // If 'amount' column not yet migrated in Supabase, retry without amount column safely
-      if (error && (error.message?.includes("amount") || error.code === "42703" || error.code === "PGRST204")) {
+      // If new columns not yet migrated in Supabase, retry without them safely
+      if (error && (
+        error.message?.includes("amount") ||
+        error.message?.includes("source_type") ||
+        error.message?.includes("vendor_name") ||
+        error.message?.includes("vendor_phone") ||
+        error.message?.includes("cost_price") ||
+        error.message?.includes("vendor_ref") ||
+        error.code === "42703" ||
+        error.code === "PGRST204"
+      )) {
         const fallbackUpdates = { ...updates };
         delete fallbackUpdates.amount;
+        delete fallbackUpdates.source_type;
+        delete fallbackUpdates.vendor_name;
+        delete fallbackUpdates.vendor_phone;
+        delete fallbackUpdates.cost_price;
+        delete fallbackUpdates.vendor_ref;
+
         const retry = await this.client.from("warranties").update(fallbackUpdates).eq("id", id).select();
         if (!retry.error) {
           data = retry.data;
@@ -625,16 +735,18 @@ class WarrantyService {
         }
       }
 
-      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
-        const list = this.getDemoRecords();
-        const idx = list.findIndex((w) => w.id === id);
-        if (idx !== -1) {
-          list[idx] = { ...list[idx], ...updates };
-          this.saveDemoRecords(list);
-          return { data: list[idx], error: null };
-        }
+      // Always sync with local demo storage cache
+      const list = this.getDemoRecords();
+      const idx = list.findIndex((w) => w.id === id);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...updates };
+        this.saveDemoRecords(list);
       }
-      return { data: data ? data[0] : null, error };
+
+      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
+        return { data: list[idx] || null, error: null };
+      }
+      return { data: data ? data[0] : (list[idx] || null), error };
     } else {
       const list = this.getDemoRecords();
       const idx = list.findIndex((w) => w.id === id);
@@ -850,6 +962,108 @@ class WarrantyService {
       let list = this.getDemoLeads();
       list = list.filter((l) => l.id !== id);
       this.saveDemoLeads(list);
+      return { error: null };
+    }
+  }
+
+  // =========================================================================
+  // DIARY & SECRET NOTES MANAGEMENT (Credentials, Calculations & Notes)
+  // =========================================================================
+
+  async getAllDiaryNotes() {
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("diary_notes")
+        .select("*")
+        .order("is_pinned", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        // Fallback to local storage if diary_notes table not yet created in Supabase
+        return { data: this.getDemoDiaryNotes(), error: null };
+      }
+      return { data: data || [], error: null };
+    } else {
+      return { data: this.getDemoDiaryNotes(), error: null };
+    }
+  }
+
+  async createDiaryNote(record) {
+    const newRecord = {
+      ...record,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("diary_notes")
+        .insert([newRecord])
+        .select();
+
+      if (error) {
+        newRecord.id = "note-loc-" + Date.now();
+        const list = this.getDemoDiaryNotes();
+        list.unshift(newRecord);
+        this.saveDemoDiaryNotes(list);
+        return { data: newRecord, error: null };
+      }
+      return { data: data ? data[0] : newRecord, error: null };
+    } else {
+      newRecord.id = "note-loc-" + Date.now();
+      const list = this.getDemoDiaryNotes();
+      list.unshift(newRecord);
+      this.saveDemoDiaryNotes(list);
+      return { data: newRecord, error: null };
+    }
+  }
+
+  async updateDiaryNote(id, updates) {
+    updates.updated_at = new Date().toISOString();
+
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("diary_notes")
+        .update(updates)
+        .eq("id", id)
+        .select();
+
+      if (error) {
+        const list = this.getDemoDiaryNotes();
+        const idx = list.findIndex((n) => n.id === id);
+        if (idx !== -1) {
+          list[idx] = { ...list[idx], ...updates };
+          this.saveDemoDiaryNotes(list);
+          return { data: list[idx], error: null };
+        }
+      }
+      return { data: data ? data[0] : null, error };
+    } else {
+      const list = this.getDemoDiaryNotes();
+      const idx = list.findIndex((n) => n.id === id);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...updates };
+        this.saveDemoDiaryNotes(list);
+        return { data: list[idx], error: null };
+      }
+      return { data: null, error: { message: "Note not found" } };
+    }
+  }
+
+  async deleteDiaryNote(id) {
+    if (this.isLive) {
+      const { error } = await this.client.from("diary_notes").delete().eq("id", id);
+      if (error) {
+        let list = this.getDemoDiaryNotes();
+        list = list.filter((n) => n.id !== id);
+        this.saveDemoDiaryNotes(list);
+        return { error: null };
+      }
+      return { error };
+    } else {
+      let list = this.getDemoDiaryNotes();
+      list = list.filter((n) => n.id !== id);
+      this.saveDemoDiaryNotes(list);
       return { error: null };
     }
   }

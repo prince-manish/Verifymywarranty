@@ -13,8 +13,10 @@
 let allWarranties = [];
 let allProducts = [];
 let allLeads = [];
+let allDiaryNotes = [];
 let parsedCSVRecords = [];
 let currentNotifFilter = "all";
+let currentDiaryFilter = "all";
 
 // Modal Instances
 let warrantyModalInstance = null;
@@ -23,6 +25,9 @@ let postSaveModalInstance = null;
 let notificationModalInstance = null;
 let importModalInstance = null;
 let leadMessageModalInstance = null;
+let diaryNoteModalInstance = null;
+let statDetailModalInstance = null;
+let currentStatModalType = "all";
 let currentModalLeadId = null;
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -38,6 +43,14 @@ document.addEventListener("DOMContentLoaded", function () {
   const leadMsgModalEl = document.getElementById("leadMessageModal");
   if (leadMsgModalEl) {
     leadMessageModalInstance = new bootstrap.Modal(leadMsgModalEl);
+  }
+  const diaryModalEl = document.getElementById("diaryNoteModal");
+  if (diaryModalEl) {
+    diaryNoteModalInstance = new bootstrap.Modal(diaryModalEl);
+  }
+  const statModalEl = document.getElementById("statDetailModal");
+  if (statModalEl) {
+    statDetailModalInstance = new bootstrap.Modal(statModalEl);
   }
 
   // 3. Update Environment Indicator
@@ -64,6 +77,33 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // 7. Attach CSV File Input Listener
   document.getElementById("csvFileInput").addEventListener("change", handleCSVFileSelection);
+
+  // 8. Attach Stat Cards & Icons Listeners (Fallback to ensure clicks always work)
+  const statBinds = [
+    { id: "cardTotalUsers", type: "all" },
+    { id: "cardActiveLicenses", type: "active" },
+    { id: "cardExpiredLicenses", type: "expired" },
+    { id: "cardExpiringLicenses", type: "expiring30" }
+  ];
+  statBinds.forEach(({ id, type }) => {
+    const cardEl = document.getElementById(id);
+    if (cardEl) {
+      cardEl.addEventListener("click", () => {
+        if (typeof window.openStatDetailModal === "function") {
+          window.openStatDetailModal(type);
+        }
+      });
+      const iconEl = cardEl.querySelector(".stat-icon");
+      if (iconEl) {
+        iconEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (typeof window.openStatDetailModal === "function") {
+            window.openStatDetailModal(type);
+          }
+        });
+      }
+    }
+  });
 });
 
 // ===========================================================================
@@ -90,13 +130,16 @@ window.switchAdminTab = function (tab) {
   const prodsSec = document.getElementById("viewProductsSection");
   const revSec = document.getElementById("viewRevenueSection");
   const leadsSec = document.getElementById("viewLeadsSection");
+  const diarySec = document.getElementById("viewDiarySection");
+
   const tabUsersBtn = document.getElementById("tabUsersBtn");
   const tabProdsBtn = document.getElementById("tabProductsBtn");
   const tabRevBtn = document.getElementById("tabRevenueBtn");
   const tabLeadsBtn = document.getElementById("tabLeadsBtn");
+  const tabDiaryBtn = document.getElementById("tabDiaryBtn");
 
-  [usersSec, prodsSec, revSec, leadsSec].forEach((el) => el && el.classList.add("d-none"));
-  [tabUsersBtn, tabProdsBtn, tabRevBtn, tabLeadsBtn].forEach((btn) => btn && btn.classList.remove("active"));
+  [usersSec, prodsSec, revSec, leadsSec, diarySec].forEach((el) => el && el.classList.add("d-none"));
+  [tabUsersBtn, tabProdsBtn, tabRevBtn, tabLeadsBtn, tabDiaryBtn].forEach((btn) => btn && btn.classList.remove("active"));
 
   if (tab === "products") {
     prodsSec.classList.remove("d-none");
@@ -111,6 +154,10 @@ window.switchAdminTab = function (tab) {
     leadsSec && leadsSec.classList.remove("d-none");
     tabLeadsBtn && tabLeadsBtn.classList.add("active");
     loadLeads();
+  } else if (tab === "diary") {
+    diarySec && diarySec.classList.remove("d-none");
+    tabDiaryBtn && tabDiaryBtn.classList.add("active");
+    loadDiaryNotes();
   } else {
     usersSec.classList.remove("d-none");
     tabUsersBtn.classList.add("active");
@@ -419,24 +466,41 @@ function updateStatistics(records) {
   records.forEach((r) => {
     const pDate = new Date(r.purchase_date);
     const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
     const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+    const isWActive = today <= expiry && r.status !== "void" && r.status !== "expired";
+    const isWExpired = today > expiry || r.status === "expired";
 
     if (r.status === "void") {
       // void
-    } else if (today <= expiry) {
+    } else if (isWActive) {
       active++;
       if (diffDays <= 30 && diffDays >= 0) {
         expiring30Days++;
       }
-    } else {
+    } else if (isWExpired) {
       expired++;
     }
   });
 
-  document.getElementById("statTotal").textContent = total;
-  document.getElementById("statActive").textContent = active;
-  document.getElementById("statExpired").textContent = expired;
-  document.getElementById("statExpiring").textContent = expiring30Days;
+  const elTotal = document.getElementById("statTotal");
+  if (elTotal) elTotal.textContent = total;
+  const elActive = document.getElementById("statActive");
+  if (elActive) elActive.textContent = active;
+  const elExpired = document.getElementById("statExpired");
+  if (elExpired) elExpired.textContent = expired;
+  const elExpiring = document.getElementById("statExpiring");
+  if (elExpiring) elExpiring.textContent = expiring30Days;
+
+  // Sync Quick View modal pills count if present
+  const pAll = document.getElementById("statPillCountAll");
+  if (pAll) pAll.textContent = total;
+  const pActive = document.getElementById("statPillCountActive");
+  if (pActive) pActive.textContent = active;
+  const pExpired = document.getElementById("statPillCountExpired");
+  if (pExpired) pExpired.textContent = expired;
+  const pExpiring = document.getElementById("statPillCountExpiring");
+  if (pExpiring) pExpiring.textContent = expiring30Days;
 }
 
 // ===========================================================================
@@ -581,7 +645,8 @@ window.filterNotifications = function (filterType) {
 // ===========================================================================
 
 function generateWhatsAppUrl(record) {
-  if (!record.customer_mobile || !record.customer_mobile.trim()) {
+  const rawPhone = String(record?.customer_mobile || "").trim();
+  if (!rawPhone) {
     return "#";
   }
 
@@ -590,8 +655,7 @@ function generateWhatsAppUrl(record) {
   const expiryFormatted = formatDate(expiry);
   const actFormatted = formatDate(pDate);
 
-  let phone = String(record.customer_mobile || "").trim();
-  phone = phone.replace(/[^0-9]/g, "");
+  let phone = rawPhone.replace(/[^0-9]/g, "");
 
   if (phone.length === 10) {
     phone = "91" + phone;
@@ -601,15 +665,18 @@ function generateWhatsAppUrl(record) {
     ? `Hello ${record.customer_name},`
     : `Hello,`;
 
+  const custEmail = String(record?.customer_email || "").trim();
+  const emailLine = custEmail ? `Customer Email : ${custEmail}\n` : "";
+
   const message = 
 `${greeting}
 
-Your service license for *${record.product_name}* is expiring on *${expiryFormatted}*.
+Your service license for *${record.product_name || "Service"}* is expiring on *${expiryFormatted}*.
 
-Product Name : ${record.product_name}
-activation date : ${actFormatted}
+Product Name : ${record.product_name || "N/A"}
+${emailLine}activation date : ${actFormatted}
 Valid till date : ${expiryFormatted}
-Serial Number : ${record.serial_number}
+Serial Number : ${record.serial_number || "N/A"}
 Notes : ${record.notes || "Renewal reminder"}
 
 Please renew your service to continue uninterrupted access.
@@ -619,6 +686,7 @@ thanks for choose Foxzen`;
 }
 
 function generateTelegramUrl(record) {
+  if (!record) return "#";
   const pDate = new Date(record.purchase_date);
   const expiry = calculateExpiry(pDate, record.warranty_months, record.warranty_type || "month");
   const expiryFormatted = formatDate(expiry);
@@ -628,24 +696,323 @@ function generateTelegramUrl(record) {
     ? `Hello ${record.customer_name},`
     : `Hello,`;
 
+  const custEmail = String(record?.customer_email || "").trim();
+  const emailLine = custEmail ? `Customer Email : ${custEmail}\n` : "";
+
   const message = 
 `${greeting}
 
-Your license for ${record.product_name} is expiring on ${expiryFormatted}.
-Activation: ${actFormatted}
+Your license for ${record.product_name || "Service"} is expiring on ${expiryFormatted}.
+
+Product Name : ${record.product_name || "N/A"}
+${emailLine}Activation: ${actFormatted}
 Valid Till: ${expiryFormatted}
-Serial: ${record.serial_number}
+Serial: ${record.serial_number || "N/A"}
 
 Please renew your service to continue uninterrupted access.
 thanks for choose Foxzen`;
 
-  if (record.telegram_id && record.telegram_id.trim()) {
-    const cleanUser = record.telegram_id.replace(/^@/, "").trim();
+  const cleanUser = String(record.telegram_id || "").replace(/^@/, "").trim();
+  if (cleanUser) {
     return `https://t.me/${cleanUser}`;
   }
 
   return `https://t.me/share/url?url=&text=${encodeURIComponent(message)}`;
 }
+
+// ===========================================================================
+// STAT CARDS QUICK-VIEW MODAL (TOTAL, ACTIVE, EXPIRED, EXPIRING IN 30 DAYS)
+// ===========================================================================
+
+window.openStatDetailModal = function (type) {
+  try {
+    currentStatModalType = type || "all";
+    const modalEl = document.getElementById("statDetailModal");
+    if (!modalEl) {
+      console.error("statDetailModal not found in DOM");
+      return;
+    }
+
+    if (typeof bootstrap !== "undefined" && bootstrap.Modal) {
+      statDetailModalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+      if (!statDetailModalInstance) {
+        statDetailModalInstance = new bootstrap.Modal(modalEl);
+      }
+    }
+
+    const searchInput = document.getElementById("statModalSearchInput");
+    if (searchInput) searchInput.value = "";
+
+    try {
+      updateStatModalPills();
+    } catch (e) {
+      console.warn("updateStatModalPills error:", e);
+    }
+
+    try {
+      renderStatModalContent();
+    } catch (e) {
+      console.error("renderStatModalContent error:", e);
+    }
+
+    if (statDetailModalInstance) {
+      statDetailModalInstance.show();
+    }
+  } catch (err) {
+    console.error("openStatDetailModal error:", err);
+  }
+};
+
+window.switchStatModalCategory = function (type) {
+  currentStatModalType = type;
+  const searchInput = document.getElementById("statModalSearchInput");
+  if (searchInput) searchInput.value = "";
+  try {
+    updateStatModalPills();
+    renderStatModalContent();
+  } catch (e) {
+    console.error("switchStatModalCategory error:", e);
+  }
+};
+
+function updateStatModalPills() {
+  const pillMap = {
+    all: "statPillAll",
+    active: "statPillActive",
+    expired: "statPillExpired",
+    expiring30: "statPillExpiring"
+  };
+  Object.values(pillMap).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("active");
+  });
+  const activePill = document.getElementById(pillMap[currentStatModalType]);
+  if (activePill) activePill.classList.add("active");
+}
+
+window.filterStatModalList = function () {
+  renderStatModalContent();
+};
+
+function getFilteredRecordsForStat(type) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return allWarranties.filter((r) => {
+    const pDate = new Date(r.purchase_date);
+    const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+    const isDateValid = !isNaN(expiry.getTime());
+    const diffDays = isDateValid ? Math.ceil((expiry - today) / (1000 * 60 * 60 * 24)) : 999;
+    const isWActive = isDateValid ? (today <= expiry && r.status !== "void" && r.status !== "expired") : (r.status === "active");
+    const isWExpired = isDateValid ? (today > expiry || r.status === "expired") : (r.status === "expired");
+
+    if (type === "active") {
+      return isWActive;
+    } else if (type === "expired") {
+      return isWExpired;
+    } else if (type === "expiring30") {
+      return isDateValid && diffDays <= 30 && diffDays >= 0 && r.status !== "void" && r.status !== "expired";
+    }
+    return true; // "all"
+  });
+}
+
+function renderStatModalContent() {
+  const container = document.getElementById("statModalListContainer");
+  const emptyState = document.getElementById("statModalEmptyState");
+  const titleEl = document.getElementById("statModalTitle");
+  const subEl = document.getElementById("statModalSubtitle");
+  const iconEl = document.getElementById("statModalIcon");
+  const iconBox = document.getElementById("statModalIconBox");
+  const countBadge = document.getElementById("statModalCountBadge");
+  const filterBtn = document.getElementById("statModalFilterTableBtn");
+  const searchInput = document.getElementById("statModalSearchInput");
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : "";
+
+  if (!container) return;
+
+  const typeConfig = {
+    all: {
+      title: "Total Users & Licenses",
+      subtitle: "All registered customer licenses in Foxzen",
+      icon: "bi-people",
+      boxClass: "bg-primary bg-opacity-10 text-primary",
+      badgeClass: "bg-primary text-white",
+      btnText: "Filter Main Table (All Users)"
+    },
+    active: {
+      title: "Active Licenses",
+      subtitle: "Currently valid & running customer licenses",
+      icon: "bi-patch-check",
+      boxClass: "bg-success bg-opacity-10 text-success",
+      badgeClass: "bg-success text-white",
+      btnText: "Filter Main Table (Active Only)"
+    },
+    expired: {
+      title: "Expired Licenses",
+      subtitle: "Past validity date - renewal required",
+      icon: "bi-x-circle",
+      boxClass: "bg-danger bg-opacity-10 text-danger",
+      badgeClass: "bg-danger text-white",
+      btnText: "Filter Main Table (Expired Only)"
+    },
+    expiring30: {
+      title: "Expiring in 30 Days",
+      subtitle: "Urgent: Licenses due for renewal within next 30 days",
+      icon: "bi-clock-history",
+      boxClass: "bg-warning bg-opacity-10 text-warning",
+      badgeClass: "bg-warning text-dark",
+      btnText: "Filter Main Table (Expiring Soon)"
+    }
+  };
+
+  const cfg = typeConfig[currentStatModalType] || typeConfig.all;
+  if (titleEl) titleEl.textContent = cfg.title;
+  if (subEl) subEl.textContent = cfg.subtitle;
+  if (iconEl) iconEl.className = `bi ${cfg.icon}`;
+  if (iconBox) iconBox.className = `stat-icon ${cfg.boxClass}`;
+  if (filterBtn) filterBtn.innerHTML = `<i class="bi bi-funnel-fill me-1"></i> ${cfg.btnText}`;
+
+  const baseRecords = getFilteredRecordsForStat(currentStatModalType);
+
+  const items = baseRecords.filter((r) => {
+    if (!query) return true;
+    const matchProduct = (r.product_name || "").toLowerCase().includes(query);
+    const matchSerial = (r.serial_number || "").toLowerCase().includes(query);
+    const matchName = (r.customer_name || "").toLowerCase().includes(query);
+    const matchEmail = (r.customer_email || "").toLowerCase().includes(query);
+    const matchMobile = String(r.customer_mobile || "").toLowerCase().includes(query);
+    return matchProduct || matchSerial || matchName || matchEmail || matchMobile;
+  });
+
+  if (countBadge) {
+    countBadge.className = `badge rounded-pill px-3 py-2 ${cfg.badgeClass}`;
+    countBadge.textContent = `${items.length} records`;
+  }
+
+  if (items.length === 0) {
+    container.innerHTML = "";
+    if (emptyState) emptyState.classList.remove("d-none");
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add("d-none");
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let html = "";
+  items.forEach((r) => {
+    try {
+      const pDate = new Date(r.purchase_date);
+      const expiry = calculateExpiry(pDate, r.warranty_months, r.warranty_type || "month");
+      expiry.setHours(0, 0, 0, 0);
+      const isDateValid = !isNaN(expiry.getTime());
+      const diffDays = isDateValid ? Math.ceil((expiry - today) / (1000 * 60 * 60 * 24)) : 999;
+
+      let badgeClass = "bg-success-subtle text-success border border-success-subtle";
+      let badgeText = isDateValid ? `Active (${diffDays} days left)` : "Active";
+
+      if (r.status === "void") {
+        badgeClass = "bg-secondary-subtle text-secondary border";
+        badgeText = "Void / Suspended";
+      } else if (!isDateValid) {
+        badgeClass = "bg-secondary-subtle text-secondary border";
+        badgeText = "Active (Lifetime / Custom)";
+      } else if (diffDays === 0) {
+        badgeClass = "bg-danger text-white";
+        badgeText = "EXPIRES TODAY!";
+      } else if (diffDays < 0) {
+        badgeClass = "bg-danger-subtle text-danger border border-danger-subtle";
+        badgeText = `Expired ${Math.abs(diffDays)} days ago`;
+      } else if (diffDays <= 30) {
+        badgeClass = "bg-warning-subtle text-warning-emphasis border border-warning-subtle";
+        badgeText = `Expiring in ${diffDays} days`;
+      }
+
+      const waLink = generateWhatsAppUrl(r);
+      const tgLink = generateTelegramUrl(r);
+      const amountVal = (r.amount !== undefined && r.amount !== null && r.amount !== "") ? parseFloat(r.amount) : 0;
+      const costVal = parseFloat(r.cost_price || 0);
+
+      html += `
+        <div class="card border rounded-3 p-3 bg-white shadow-sm mb-1">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+            <div>
+              <h6 class="fw-bold mb-0 text-dark">${escapeHtml(r.customer_name || "Customer")}</h6>
+              <div class="small text-muted d-flex flex-wrap align-items-center gap-2 mt-1">
+                ${r.customer_mobile ? `<span><i class="bi bi-phone me-1"></i>${escapeHtml(String(r.customer_mobile))}</span>` : ""}
+                ${r.customer_email ? `<span><i class="bi bi-envelope me-1"></i>${escapeHtml(String(r.customer_email))}</span>` : ""}
+                ${r.telegram_id ? `<span class="text-info"><i class="bi bi-telegram me-1"></i>@${escapeHtml(String(r.telegram_id).replace(/^@/, ""))}</span>` : ""}
+              </div>
+            </div>
+            <span class="badge ${badgeClass} px-2 py-1">${badgeText}</span>
+          </div>
+
+          <div class="row g-2 small text-secondary bg-light p-2 rounded-2 mb-2">
+            <div class="col-sm-6">
+              <span class="text-dark fw-semibold"><i class="bi bi-box-seam text-primary me-1"></i>${escapeHtml(r.product_name)}</span>
+              <div class="font-monospace text-muted mt-1"><i class="bi bi-upc me-1"></i>${escapeHtml(r.serial_number)}</div>
+            </div>
+            <div class="col-sm-6">
+              <div><i class="bi bi-calendar-event me-1"></i>Valid Till: <strong>${formatDate(expiry)}</strong></div>
+              <div class="mt-1 d-flex align-items-center gap-2">
+                <span class="text-success fw-bold">₹${amountVal.toFixed(2)}</span>
+                ${costVal > 0 ? `<span class="badge bg-warning-subtle text-warning-emphasis border">Cost: ₹${costVal.toFixed(0)}</span>` : `<span class="badge bg-light text-muted border">In-House</span>`}
+                ${r.vendor_name ? `<span class="badge bg-secondary-subtle text-secondary">${escapeHtml(r.vendor_name)}</span>` : ""}
+              </div>
+            </div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div class="d-flex gap-2">
+              <a href="${waLink}" target="_blank" class="btn btn-whatsapp btn-sm rounded-pill px-3">
+                <i class="bi bi-whatsapp"></i> WhatsApp
+              </a>
+              ${r.telegram_id ? `
+                <a href="${tgLink}" target="_blank" class="btn btn-telegram btn-sm rounded-pill px-3">
+                  <i class="bi bi-telegram"></i> Telegram
+                </a>
+              ` : ""}
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm rounded-pill px-3" onclick="statModalEditUser('${r.id}')">
+              <i class="bi bi-pencil me-1"></i> Edit License
+            </button>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      console.warn("Item render error in stat modal:", err, r);
+    }
+  });
+
+  container.innerHTML = html;
+}
+
+window.statModalEditUser = function (id) {
+  if (statDetailModalInstance) statDetailModalInstance.hide();
+  openEditModal(id);
+};
+
+window.applyStatFilterToTable = function () {
+  if (statDetailModalInstance) statDetailModalInstance.hide();
+  const select = document.getElementById("statusFilter");
+  if (select) {
+    select.value = currentStatModalType;
+  }
+  filterAndRenderTable();
+  const tableEl = document.getElementById("warrantiesTable");
+  if (tableEl) {
+    tableEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+};
+
+window.clearTableStatusFilter = function () {
+  const select = document.getElementById("statusFilter");
+  if (select) select.value = "all";
+  filterAndRenderTable();
+};
 
 // ===========================================================================
 // USERS TABLE RENDERING & ACTIONS
@@ -656,10 +1023,25 @@ function filterAndRenderTable() {
   const statusFilter = document.getElementById("statusFilter").value;
   const tbody = document.getElementById("warrantiesTableBody");
   const emptyState = document.getElementById("emptyTableState");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   const filtered = allWarranties.filter((item) => {
-    if (statusFilter !== "all" && item.status !== statusFilter) {
-      return false;
+    const pDate = new Date(item.purchase_date);
+    const expiry = calculateExpiry(pDate, item.warranty_months, item.warranty_type || "month");
+    expiry.setHours(0, 0, 0, 0);
+    const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+    const isWActive = today <= expiry && item.status !== "void" && item.status !== "expired";
+    const isWExpired = today > expiry || item.status === "expired";
+
+    if (statusFilter === "active") {
+      if (!isWActive) return false;
+    } else if (statusFilter === "expired") {
+      if (!isWExpired) return false;
+    } else if (statusFilter === "void") {
+      if (item.status !== "void") return false;
+    } else if (statusFilter === "expiring30") {
+      if (!(diffDays <= 30 && diffDays >= 0 && item.status !== "void" && item.status !== "expired")) return false;
     }
 
     if (query) {
@@ -674,6 +1056,24 @@ function filterAndRenderTable() {
     return true;
   });
 
+  // Active filter badge banner
+  const badgeContainer = document.getElementById("activeFilterBadgeContainer");
+  const badgeText = document.getElementById("activeFilterBadgeText");
+  if (badgeContainer && badgeText) {
+    if (statusFilter !== "all") {
+      const labelMap = {
+        active: "Active Licenses",
+        expired: "Expired Licenses",
+        expiring30: "Expiring in 30 Days",
+        void: "Void / Suspended"
+      };
+      badgeText.innerHTML = `Filter: <strong>${labelMap[statusFilter] || statusFilter}</strong> (${filtered.length} users)`;
+      badgeContainer.classList.remove("d-none");
+    } else {
+      badgeContainer.classList.add("d-none");
+    }
+  }
+
   if (filtered.length === 0) {
     tbody.innerHTML = "";
     emptyState.classList.remove("d-none");
@@ -682,8 +1082,6 @@ function filterAndRenderTable() {
 
   emptyState.classList.add("d-none");
   let html = "";
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   filtered.forEach((r) => {
     const pDate = new Date(r.purchase_date);
@@ -711,6 +1109,24 @@ function filterAndRenderTable() {
           <small class="badge bg-light text-secondary border font-monospace mt-1">
             <i class="bi bi-upc-scan me-1"></i>${escapeHtml(r.serial_number)}
           </small>
+          ${(r.source_type === "reseller" || (parseFloat(r.cost_price) || 0) > 0 || (r.vendor_name && r.vendor_name.trim())) ? `
+            <div class="mt-1 d-flex flex-wrap align-items-center gap-1">
+              <span class="badge bg-warning-subtle text-warning-emphasis border" title="Sourced from Reseller / Vendor">
+                <i class="bi bi-truck me-1"></i>${escapeHtml(r.vendor_name || "Vendor")} (Buy: ₹${parseFloat(r.cost_price || 0).toFixed(0)})
+              </span>
+              ${r.vendor_phone ? `
+                <a href="${getVendorWhatsAppSupportUrl(r)}" target="_blank" class="badge bg-success bg-opacity-10 text-success border border-success-subtle text-decoration-none" title="Chat with Vendor on WhatsApp for Support/Replacement">
+                  <i class="bi bi-whatsapp me-1"></i>Vendor
+                </a>
+              ` : ""}
+            </div>
+          ` : `
+            <div class="mt-1">
+              <span class="badge bg-light text-muted border">
+                <i class="bi bi-house-door me-1"></i>In-House
+              </span>
+            </div>
+          `}
         </td>
         <td>
           <div class="fw-semibold">${escapeHtml(r.customer_name || "Customer")}</div>
@@ -729,6 +1145,17 @@ function filterAndRenderTable() {
           <span class="fw-bold text-dark">
             ${(r.amount !== undefined && r.amount !== null && r.amount !== "") ? `₹${parseFloat(r.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `<span class="text-muted fw-normal">₹0.00</span>`}
           </span>
+          ${(() => {
+            const amt = parseFloat(r.amount) || 0;
+            const cost = parseFloat(r.cost_price) || 0;
+            const netProfit = amt - cost;
+            if (amt > 0 || cost > 0) {
+              const badgeClass = netProfit >= 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger";
+              const sign = netProfit >= 0 ? "+" : "";
+              return `<div class="small mt-1"><span class="badge ${badgeClass} border">${sign}₹${netProfit.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Profit</span></div>`;
+            }
+            return "";
+          })()}
         </td>
         <td>
           <span class="${badgeClass}">${statusLabel}</span>
@@ -785,8 +1212,17 @@ window.openAddModal = function () {
   document.getElementById("formValidityMonths").value = "12";
   document.getElementById("formDurationType").value = "month";
   document.getElementById("formAmount").value = "";
+  document.getElementById("formCostPrice").value = "";
+  document.getElementById("formVendorName").value = "";
+  document.getElementById("formVendorPhone").value = "";
+  const vendorRefEl = document.getElementById("formVendorRef");
+  if (vendorRefEl) vendorRefEl.value = "";
   document.getElementById("formStatus").value = "active";
   document.getElementById("formProductSelect").value = "";
+
+  window.updateProfitPreview();
+  populateVendorDatalist();
+
   const filterInput = document.getElementById("dropdownProductFilter");
   if (filterInput) {
     filterInput.value = "";
@@ -832,12 +1268,92 @@ window.openEditModal = function (id) {
   document.getElementById("formValidityMonths").value = item.validity_months || 12;
   document.getElementById("formDurationType").value = item.warranty_type || "month";
   document.getElementById("formAmount").value = (item.amount !== undefined && item.amount !== null) ? item.amount : "";
+  document.getElementById("formCostPrice").value = (item.cost_price !== undefined && item.cost_price !== null && item.cost_price !== "") ? item.cost_price : "";
+  document.getElementById("formVendorName").value = item.vendor_name || "";
+  document.getElementById("formVendorPhone").value = item.vendor_phone || "";
+  const vendorRefEl = document.getElementById("formVendorRef");
+  if (vendorRefEl) vendorRefEl.value = item.vendor_ref || "";
   document.getElementById("formStatus").value = item.status || "active";
   document.getElementById("formInvoiceNo").value = item.invoice_no || "";
   document.getElementById("formNotes").value = item.notes || "";
 
+  window.updateProfitPreview();
+  populateVendorDatalist();
+
   warrantyModalInstance.show();
 };
+
+window.toggleSourceFields = function () {
+  window.updateProfitPreview();
+};
+
+window.updateProfitPreview = function () {
+  const previewBox = document.getElementById("formProfitPreviewBox");
+  const previewText = document.getElementById("formProfitPreviewText");
+  const badge = document.getElementById("formProfitBadge");
+
+  const selling = parseFloat(document.getElementById("formAmount")?.value) || 0;
+  const cost = parseFloat(document.getElementById("formCostPrice")?.value) || 0;
+
+  const profit = selling - cost;
+  const margin = selling > 0 ? ((profit / selling) * 100).toFixed(1) : "0";
+
+  if (badge) {
+    if (selling > 0 || cost > 0) {
+      const sign = profit >= 0 ? "+" : "";
+      badge.textContent = `Margin: ${sign}₹${profit.toFixed(2)} (${margin}%)`;
+      badge.className = `badge small ${profit >= 0 ? 'bg-success text-white' : 'bg-danger text-white'} px-2 py-1`;
+    } else {
+      badge.textContent = "Margin: ₹0.00";
+      badge.className = "badge bg-secondary-subtle text-secondary border small px-2 py-1";
+    }
+  }
+
+  if (!previewBox || !previewText) return;
+
+  if (selling > 0 || cost > 0) {
+    if (cost > 0) {
+      if (profit >= 0) {
+        previewBox.className = "p-2 rounded-2 small alert alert-success mb-0 d-flex align-items-center";
+        previewText.innerHTML = `<i class="bi bi-graph-up-arrow text-success me-2 fs-6"></i> <span>Selling: <strong>₹${selling.toFixed(2)}</strong> − Buy: <strong>₹${cost.toFixed(2)}</strong> = <strong>Net Margin: ₹${profit.toFixed(2)} (+${margin}%)</strong></span>`;
+      } else {
+        previewBox.className = "p-2 rounded-2 small alert alert-warning mb-0 d-flex align-items-center";
+        previewText.innerHTML = `<i class="bi bi-exclamation-triangle-fill text-danger me-2 fs-6"></i> <span>Warning: Buy Price (₹${cost.toFixed(2)}) is higher than Selling Price (₹${selling.toFixed(2)}). Loss: <strong>-₹${Math.abs(profit).toFixed(2)}</strong></span>`;
+      }
+    } else {
+      previewBox.className = "p-2 rounded-2 small alert alert-info mb-0 d-flex align-items-center";
+      previewText.innerHTML = `<i class="bi bi-house-door-fill text-primary me-2 fs-6"></i> <span>In-House Product (No Buy Price): <strong>100% Net Profit = ₹${selling.toFixed(2)}</strong></span>`;
+    }
+    previewBox.classList.remove("d-none");
+  } else {
+    previewBox.classList.add("d-none");
+  }
+};
+
+function populateVendorDatalist() {
+  const datalist = document.getElementById("vendorNameDatalist");
+  if (!datalist) return;
+  const vendors = new Set();
+  allWarranties.forEach((w) => {
+    if (w.vendor_name && w.vendor_name.trim()) vendors.add(w.vendor_name.trim());
+  });
+  if (vendors.size === 0) {
+    vendors.add("Techshup OTT");
+  }
+  let optionsHtml = "";
+  vendors.forEach((v) => {
+    optionsHtml += `<option value="${escapeHtml(v)}"></option>`;
+  });
+  datalist.innerHTML = optionsHtml;
+}
+
+function getVendorWhatsAppSupportUrl(r) {
+  let phone = String(r.vendor_phone || "").trim().replace(/[^0-9]/g, "");
+  if (phone.length === 10) phone = "91" + phone;
+  const vendorName = r.vendor_name || "Vendor";
+  const msg = `Hi ${vendorName}, regarding customer license ${r.serial_number} (${r.product_name}) - customer reported an issue, please check replacement.`;
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+}
 
 async function handleWarrantyFormSubmit(e) {
   e.preventDefault();
@@ -859,6 +1375,15 @@ async function handleWarrantyFormSubmit(e) {
   const rawAmount = document.getElementById("formAmount").value.trim();
   const amountVal = rawAmount !== "" ? parseFloat(rawAmount) : 0;
 
+  const rawCost = document.getElementById("formCostPrice")?.value.trim() || "";
+  const costVal = rawCost !== "" ? parseFloat(rawCost) : 0;
+  const vendorName = document.getElementById("formVendorName")?.value.trim() || "";
+  const vendorPhone = document.getElementById("formVendorPhone")?.value.trim() || "";
+  const vendorRef = document.getElementById("formVendorRef")?.value.trim() || "";
+
+  // Sourcing type: reseller if cost or vendor provided, else own product
+  const sourceType = (costVal > 0 || vendorName) ? "reseller" : "own";
+
   const recordData = {
     product_name: document.getElementById("formProductName").value.trim(),
     serial_number: document.getElementById("formSerialNumber").value.trim().toUpperCase(),
@@ -874,7 +1399,12 @@ async function handleWarrantyFormSubmit(e) {
     amount: isNaN(amountVal) ? 0 : amountVal,
     status: document.getElementById("formStatus").value,
     invoice_no: document.getElementById("formInvoiceNo").value.trim(),
-    notes: document.getElementById("formNotes").value.trim()
+    notes: document.getElementById("formNotes").value.trim(),
+    source_type: sourceType,
+    vendor_name: vendorName,
+    vendor_phone: vendorPhone,
+    cost_price: costVal,
+    vendor_ref: vendorRef
   };
 
   saveBtn.disabled = true;
@@ -928,11 +1458,16 @@ function showPostSaveOutput(record) {
     ? `💰 *Amount Paid:* ₹${parseFloat(record.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`
     : "";
 
+  const custEmail = String(record.customer_email || "").trim();
+  const emailFormatted = custEmail
+    ? `📧 *Customer Email:* ${custEmail}\n`
+    : "";
+
   const outputFormattedText = 
 `🎉 *OFFICIAL LICENSE ACTIVATION - FOXZEN*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 *Customer Name:* ${custName}
-💻 *Product Name:* ${record.product_name}
+${emailFormatted}💻 *Product Name:* ${record.product_name}
 🔑 *Serial Number:* ${record.serial_number}
 📅 *Activation Date:* ${actFormatted}
 ⏳ *Valid Till:* ${expiryFormatted}
@@ -1331,11 +1866,19 @@ window.renderRevenueDashboard = function () {
   const currentMonth = now.getMonth();
   const todayStr = now.toISOString().split("T")[0];
 
-  let totalRevenue = 0;
+  let totalGrossRevenue = 0;
+  let totalVendorCost = 0;
+  let totalNetProfit = 0;
   let totalCount = 0;
-  let monthRevenue = 0;
+
+  let monthGrossRevenue = 0;
+  let monthVendorCost = 0;
+  let monthNetProfit = 0;
   let monthCount = 0;
-  let todayRevenue = 0;
+
+  let todayGrossRevenue = 0;
+  let todayVendorCost = 0;
+  let todayNetProfit = 0;
   let todayCount = 0;
 
   let activeRevenue = 0;
@@ -1349,19 +1892,28 @@ window.renderRevenueDashboard = function () {
 
   allWarranties.forEach((r) => {
     const amt = parseFloat(r.amount) || 0;
-    totalRevenue += amt;
+    const cost = parseFloat(r.cost_price) || 0;
+    const profit = amt - cost;
+
+    totalGrossRevenue += amt;
+    totalVendorCost += cost;
+    totalNetProfit += profit;
     totalCount++;
 
     // Check date for month & today
     const pDate = new Date(r.purchase_date);
     if (!isNaN(pDate)) {
       if (pDate.getFullYear() === currentYear && pDate.getMonth() === currentMonth) {
-        monthRevenue += amt;
+        monthGrossRevenue += amt;
+        monthVendorCost += cost;
+        monthNetProfit += profit;
         monthCount++;
       }
       const pDateStr = r.purchase_date ? r.purchase_date.split("T")[0] : "";
       if (pDateStr === todayStr) {
-        todayRevenue += amt;
+        todayGrossRevenue += amt;
+        todayVendorCost += cost;
+        todayNetProfit += profit;
         todayCount++;
       }
     }
@@ -1391,34 +1943,45 @@ window.renderRevenueDashboard = function () {
       productMap[prodName] = {
         name: prodName,
         totalRevenue: 0,
+        totalCost: 0,
+        totalProfit: 0,
         licenseCount: 0
       };
     }
     productMap[prodName].totalRevenue += amt;
+    productMap[prodName].totalCost += cost;
+    productMap[prodName].totalProfit += profit;
     productMap[prodName].licenseCount++;
   });
 
-  const avgRevenue = totalCount > 0 ? totalRevenue / totalCount : 0;
-
   const formatINR = (val) => "₹" + val.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  // 1. Total Net Profit
   const totalEl = document.getElementById("revTotalAmount");
-  if (totalEl) totalEl.textContent = formatINR(totalRevenue);
+  if (totalEl) totalEl.textContent = formatINR(totalNetProfit);
   const totalCountEl = document.getElementById("revTotalCount");
-  if (totalCountEl) totalCountEl.textContent = `${totalCount} licenses recorded`;
+  if (totalCountEl) totalCountEl.textContent = `Sales: ${formatINR(totalGrossRevenue)} | Cost: ${formatINR(totalVendorCost)}`;
 
+  // 2. This Month Net Profit
   const monthEl = document.getElementById("revMonthAmount");
-  if (monthEl) monthEl.textContent = formatINR(monthRevenue);
+  if (monthEl) monthEl.textContent = formatINR(monthNetProfit);
   const monthCountEl = document.getElementById("revMonthCount");
-  if (monthCountEl) monthCountEl.textContent = `${monthCount} activations in ${now.toLocaleString("en-US", { month: "short" })}`;
+  if (monthCountEl) monthCountEl.textContent = `Net Profit in ${now.toLocaleString("en-US", { month: "short" })} (${monthCount} licenses)`;
 
+  // 3. Today's Net Profit
   const todayEl = document.getElementById("revTodayAmount");
-  if (todayEl) todayEl.textContent = formatINR(todayRevenue);
+  if (todayEl) todayEl.textContent = formatINR(todayNetProfit);
   const todayCountEl = document.getElementById("revTodayCount");
-  if (todayCountEl) todayCountEl.textContent = `${todayCount} activations today`;
+  if (todayCountEl) todayCountEl.textContent = `Today Net In-Pocket (${todayCount} licenses)`;
 
-  const avgEl = document.getElementById("revAvgAmount");
-  if (avgEl) avgEl.textContent = formatINR(avgRevenue);
+  // 4. Total Reseller Cost
+  const costEl = document.getElementById("revAvgAmount");
+  if (costEl) costEl.textContent = formatINR(totalVendorCost);
+  const costSub = document.getElementById("revCostSubtext");
+  if (costSub) {
+    const margin = totalGrossRevenue > 0 ? ((totalNetProfit / totalGrossRevenue) * 100).toFixed(1) : "0";
+    costSub.textContent = `Paid to Resellers (${margin}% Net Margin)`;
+  }
 
   const activeTotEl = document.getElementById("revActiveTotal");
   if (activeTotEl) activeTotEl.textContent = formatINR(activeRevenue);
@@ -1426,7 +1989,7 @@ window.renderRevenueDashboard = function () {
   if (activeCntEl) activeCntEl.textContent = `${activeCount} users`;
   const activeShareEl = document.getElementById("revActiveShare");
   if (activeShareEl) {
-    const pct = totalRevenue > 0 ? Math.round((activeRevenue / totalRevenue) * 100) : 0;
+    const pct = totalGrossRevenue > 0 ? Math.round((activeRevenue / totalGrossRevenue) * 100) : 0;
     activeShareEl.textContent = `${pct}% of total revenue`;
   }
 
@@ -1440,7 +2003,7 @@ window.renderRevenueDashboard = function () {
   const voidCntEl = document.getElementById("revVoidCount");
   if (voidCntEl) voidCntEl.textContent = `${voidCount} users`;
 
-  renderProductRevenueBreakdown(productMap, totalRevenue);
+  renderProductRevenueBreakdown(productMap, totalGrossRevenue);
   filterRevenueTransactions();
 };
 
@@ -1449,7 +2012,7 @@ function renderProductRevenueBreakdown(productMap, totalRevenue) {
   const badge = document.getElementById("revProductCountBadge");
   if (!container) return;
 
-  const productsList = Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
+  const productsList = Object.values(productMap).sort((a, b) => b.totalProfit - a.totalProfit);
   if (badge) badge.textContent = `${productsList.length} Products`;
 
   if (productsList.length === 0) {
@@ -1460,7 +2023,7 @@ function renderProductRevenueBreakdown(productMap, totalRevenue) {
   const formatINR = (val) => "₹" + val.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   let html = "";
-  const progressColors = ["bg-primary", "bg-success", "bg-warning", "bg-info", "bg-secondary"];
+  const progressColors = ["bg-success", "bg-primary", "bg-warning", "bg-info", "bg-secondary"];
 
   productsList.forEach((p, idx) => {
     const percentage = totalRevenue > 0 ? ((p.totalRevenue / totalRevenue) * 100).toFixed(1) : 0;
@@ -1474,8 +2037,8 @@ function renderProductRevenueBreakdown(productMap, totalRevenue) {
             <small class="text-muted ms-1">(${p.licenseCount} ${p.licenseCount === 1 ? "license" : "licenses"})</small>
           </div>
           <div class="text-end">
-            <span class="fw-bold text-dark">${formatINR(p.totalRevenue)}</span>
-            <small class="badge bg-light text-secondary border ms-2">${percentage}%</small>
+            <span class="fw-bold text-success">${formatINR(p.totalProfit)} Profit</span>
+            <small class="badge bg-light text-secondary border ms-2">Sales: ${formatINR(p.totalRevenue)}${p.totalCost > 0 ? ` | Cost: ${formatINR(p.totalCost)}` : ""}</small>
           </div>
         </div>
         <div class="progress" style="height: 8px;">
@@ -2494,5 +3057,371 @@ window.exportLeadsToCSV = function () {
   link.click();
   document.body.removeChild(link);
 };
+
+// ===========================================================================
+// DIARY & SECRET NOTES MANAGEMENT (Credentials, Calculations & Notes)
+// ===========================================================================
+
+async function loadDiaryNotes(badgeOnly = false) {
+  try {
+    const { data } = await window.warrantyService.getAllDiaryNotes();
+    allDiaryNotes = data || [];
+    updateDiaryBadge();
+    if (!badgeOnly) {
+      filterAndRenderDiary();
+    }
+  } catch (err) {
+    console.error("Error loading diary notes:", err);
+    if (!badgeOnly) {
+      const grid = document.getElementById("diaryNotesGrid");
+      if (grid) grid.innerHTML = `<div class="col-12 text-center py-4 text-danger">Failed to load diary notes.</div>`;
+    }
+  }
+}
+
+function updateDiaryBadge() {
+  const badge = document.getElementById("diaryNavBadge");
+  const countBadge = document.getElementById("diaryNotesCountBadge");
+  const countAll = document.getElementById("diaryCountAll");
+  const countCreds = document.getElementById("diaryCountCreds");
+  const countCalc = document.getElementById("diaryCountCalc");
+  const countGen = document.getElementById("diaryCountGen");
+  const countPin = document.getElementById("diaryCountPin");
+
+  const total = allDiaryNotes.length;
+  const creds = allDiaryNotes.filter((n) => n.category === "credentials").length;
+  const calc = allDiaryNotes.filter((n) => n.category === "calculations").length;
+  const gen = allDiaryNotes.filter((n) => n.category === "general").length;
+  const pin = allDiaryNotes.filter((n) => n.is_pinned).length;
+
+  if (badge) {
+    badge.textContent = total;
+    badge.className = total > 0 ? "badge bg-danger rounded-pill ms-1" : "badge bg-secondary-subtle text-secondary rounded-pill ms-1 d-none";
+  }
+  if (countBadge) countBadge.textContent = `${total} Notes`;
+  if (countAll) countAll.textContent = total;
+  if (countCreds) countCreds.textContent = creds;
+  if (countCalc) countCalc.textContent = calc;
+  if (countGen) countGen.textContent = gen;
+  if (countPin) countPin.textContent = pin;
+}
+
+window.filterDiaryCategory = function (category) {
+  currentDiaryFilter = category;
+  const btns = ["diaryCatAll", "diaryCatCreds", "diaryCatCalc", "diaryCatGen", "diaryCatPin"];
+  btns.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove("active");
+  });
+
+  const catMap = {
+    all: "diaryCatAll",
+    credentials: "diaryCatCreds",
+    calculations: "diaryCatCalc",
+    general: "diaryCatGen",
+    pinned: "diaryCatPin"
+  };
+  const activeId = catMap[category] || "diaryCatAll";
+  document.getElementById(activeId)?.classList.add("active");
+
+  filterAndRenderDiary();
+};
+
+window.filterDiaryNotes = function () {
+  filterAndRenderDiary();
+};
+
+function filterAndRenderDiary() {
+  const query = (document.getElementById("diarySearchInput")?.value || "").toLowerCase().trim();
+  const grid = document.getElementById("diaryNotesGrid");
+  const emptyState = document.getElementById("emptyDiaryState");
+  if (!grid) return;
+
+  let filtered = allDiaryNotes.filter((note) => {
+    // Category filter
+    if (currentDiaryFilter === "pinned") {
+      if (!note.is_pinned) return false;
+    } else if (currentDiaryFilter !== "all") {
+      if (note.category !== currentDiaryFilter) return false;
+    }
+
+    // Search query
+    if (query) {
+      const matchTitle = (note.title || "").toLowerCase().includes(query);
+      const matchUser = (note.username || "").toLowerCase().includes(query);
+      const matchContent = (note.content || "").toLowerCase().includes(query);
+      const matchSecret = (note.secret_key || "").toLowerCase().includes(query);
+      return matchTitle || matchUser || matchContent || matchSecret;
+    }
+    return true;
+  });
+
+  // Sort: pinned first, then newest first
+  filtered.sort((a, b) => {
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = "";
+    if (emptyState) emptyState.classList.remove("d-none");
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add("d-none");
+
+  let html = "";
+  filtered.forEach((note) => {
+    const isCred = note.category === "credentials";
+    const isCalc = note.category === "calculations";
+    const categoryBadge = isCred
+      ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-key-fill me-1"></i>Credentials</span>`
+      : isCalc
+      ? `<span class="badge bg-info-subtle text-info border border-info-subtle"><i class="bi bi-calculator-fill me-1"></i>Calculation</span>`
+      : `<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle"><i class="bi bi-file-text me-1"></i>General Note</span>`;
+
+    const noteDate = note.created_at ? new Date(note.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+
+    html += `
+      <div class="col-md-6 col-xl-4">
+        <div class="card h-100 diary-card shadow-sm ${note.is_pinned ? "is-pinned" : ""}">
+          <div class="card-body p-3 d-flex flex-column justify-content-between">
+            <div>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="d-flex align-items-center gap-1">
+                  ${categoryBadge}
+                  ${note.is_pinned ? `<span class="badge bg-danger text-white"><i class="bi bi-pin-angle-fill"></i> Pinned</span>` : ""}
+                </div>
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-three-dots-vertical fs-6"></i>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-3">
+                    <li>
+                      <a class="dropdown-item py-2" href="javascript:void(0)" onclick="openEditDiaryNoteModal('${note.id}')">
+                        <i class="bi bi-pencil me-2 text-primary"></i> Edit Note
+                      </a>
+                    </li>
+                    <li>
+                      <a class="dropdown-item py-2" href="javascript:void(0)" onclick="togglePinDiaryNote('${note.id}')">
+                        <i class="bi bi-pin-angle me-2 text-warning"></i> ${note.is_pinned ? "Unpin Note" : "Pin to Top"}
+                      </a>
+                    </li>
+                    <li><hr class="dropdown-divider my-1"></li>
+                    <li>
+                      <a class="dropdown-item py-2 text-danger" href="javascript:void(0)" onclick="deleteDiaryNoteRecord('${note.id}')">
+                        <i class="bi bi-trash me-2"></i> Delete Note
+                      </a>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <h6 class="fw-bold text-dark mb-2">${escapeHtml(note.title)}</h6>
+
+              ${note.username ? `
+                <div class="p-2 rounded-2 bg-light mb-2 border d-flex justify-content-between align-items-center">
+                  <div class="small text-truncate me-2">
+                    <span class="text-muted d-block" style="font-size: 0.72rem;">LOGIN / USERNAME / UPI</span>
+                    <strong class="font-monospace text-dark">${escapeHtml(note.username)}</strong>
+                  </div>
+                  <button class="btn btn-sm btn-light border py-0 px-2" title="Copy Username" onclick="copyDiaryText('${escapeHtml(note.username).replace(/'/g, "\\'")}', this)">
+                    <i class="bi bi-clipboard"></i>
+                  </button>
+                </div>
+              ` : ""}
+
+              ${note.secret_key ? `
+                <div class="p-2 rounded-2 bg-light mb-2 border d-flex justify-content-between align-items-center">
+                  <div class="small text-truncate me-2">
+                    <span class="text-muted d-block" style="font-size: 0.72rem;">PASSWORD / SECRET KEY</span>
+                    <span id="secretVal_${note.id}" class="secret-mask-text font-monospace text-dark" data-secret="${escapeHtml(note.secret_key).replace(/"/g, '&quot;')}" data-shown="false">••••••••••••</span>
+                  </div>
+                  <div class="d-flex gap-1">
+                    <button class="btn btn-sm btn-light border py-0 px-2" title="Show/Hide" onclick="toggleSecretDisplay('${note.id}')">
+                      <i class="bi bi-eye" id="secretEye_${note.id}"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light border py-0 px-2" title="Copy Secret" onclick="copyDiaryText('${escapeHtml(note.secret_key).replace(/'/g, "\\'")}', this)">
+                      <i class="bi bi-clipboard"></i>
+                    </button>
+                  </div>
+                </div>
+              ` : ""}
+
+              ${note.content ? `
+                <div class="p-2 bg-white rounded-2 border text-secondary font-monospace small mb-2" style="white-space: pre-wrap; max-height: 140px; overflow-y: auto; font-size: 0.82rem; line-height: 1.5;">${escapeHtml(note.content)}</div>
+              ` : ""}
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center pt-2 border-top mt-2">
+              <small class="text-muted" style="font-size: 0.75rem;"><i class="bi bi-clock me-1"></i>${noteDate}</small>
+              <button class="btn btn-outline-secondary btn-sm py-0 px-2 rounded-pill" style="font-size: 0.75rem;" onclick="copyFullNote('${note.id}', this)">
+                <i class="bi bi-clipboard-check me-1"></i>Copy Note
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  grid.innerHTML = html;
+}
+
+window.openAddDiaryNoteModal = function () {
+  document.getElementById("diaryNoteModalTitle").innerHTML = `<i class="bi bi-journal-plus text-danger"></i> Add Note to Diary`;
+  document.getElementById("editDiaryNoteId").value = "";
+  document.getElementById("diaryNoteForm").reset();
+  document.getElementById("diaryFormCategory").value = "credentials";
+  document.getElementById("diaryFormPinned").checked = false;
+  window.onDiaryCategoryChange();
+  diaryNoteModalInstance.show();
+};
+
+window.openEditDiaryNoteModal = function (id) {
+  const note = allDiaryNotes.find((n) => n.id === id);
+  if (!note) return;
+
+  document.getElementById("diaryNoteModalTitle").innerHTML = `<i class="bi bi-pencil-square text-danger"></i> Edit Diary Note`;
+  document.getElementById("editDiaryNoteId").value = note.id;
+  document.getElementById("diaryFormTitle").value = note.title || "";
+  document.getElementById("diaryFormCategory").value = note.category || "general";
+  document.getElementById("diaryFormUsername").value = note.username || "";
+  document.getElementById("diaryFormSecret").value = note.secret_key || "";
+  document.getElementById("diaryFormContent").value = note.content || "";
+  document.getElementById("diaryFormPinned").checked = !!note.is_pinned;
+
+  window.onDiaryCategoryChange();
+  diaryNoteModalInstance.show();
+};
+
+window.onDiaryCategoryChange = function () {
+  const cat = document.getElementById("diaryFormCategory").value;
+  const credFields = document.getElementById("diaryCredFields");
+  if (!credFields) return;
+  if (cat === "credentials") {
+    credFields.classList.remove("d-none");
+  } else if (cat === "calculations") {
+    credFields.classList.add("d-none");
+  } else {
+    credFields.classList.remove("d-none");
+  }
+};
+
+window.toggleDiaryModalSecretVisibility = function () {
+  const secretInput = document.getElementById("diaryFormSecret");
+  const eyeIcon = document.getElementById("diarySecretEyeIcon");
+  if (!secretInput || !eyeIcon) return;
+
+  if (secretInput.type === "password") {
+    secretInput.type = "text";
+    eyeIcon.className = "bi bi-eye-slash";
+  } else {
+    secretInput.type = "password";
+    eyeIcon.className = "bi bi-eye";
+  }
+};
+
+window.toggleSecretDisplay = function (noteId) {
+  const el = document.getElementById(`secretVal_${noteId}`);
+  const eye = document.getElementById(`secretEye_${noteId}`);
+  if (!el || !eye) return;
+
+  const isShown = el.getAttribute("data-shown") === "true";
+  const rawSecret = el.getAttribute("data-secret") || "";
+
+  if (isShown) {
+    el.textContent = "••••••••••••";
+    el.setAttribute("data-shown", "false");
+    eye.className = "bi bi-eye";
+  } else {
+    el.textContent = rawSecret;
+    el.setAttribute("data-shown", "true");
+    eye.className = "bi bi-eye-slash";
+  }
+};
+
+window.copyDiaryText = function (text, btnEl) {
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    if (btnEl) {
+      const origHtml = btnEl.innerHTML;
+      btnEl.innerHTML = `<i class="bi bi-check2 text-success"></i>`;
+      setTimeout(() => {
+        btnEl.innerHTML = origHtml;
+      }, 1500);
+    }
+  });
+};
+
+window.copyFullNote = function (noteId, btnEl) {
+  const note = allDiaryNotes.find((n) => n.id === noteId);
+  if (!note) return;
+
+  let text = `📌 ${note.title}\n`;
+  if (note.username) text += `👤 Login/UPI: ${note.username}\n`;
+  if (note.secret_key) text += `🔑 Password/Secret: ${note.secret_key}\n`;
+  if (note.content) text += `\n📝 Notes:\n${note.content}\n`;
+
+  window.copyDiaryText(text.trim(), btnEl);
+};
+
+window.handleDiaryNoteSubmit = async function (e) {
+  e.preventDefault();
+  const id = document.getElementById("editDiaryNoteId").value;
+  const saveBtn = document.getElementById("saveDiaryBtn");
+
+  const noteData = {
+    title: document.getElementById("diaryFormTitle").value.trim(),
+    category: document.getElementById("diaryFormCategory").value,
+    username: document.getElementById("diaryFormUsername").value.trim(),
+    secret_key: document.getElementById("diaryFormSecret").value.trim(),
+    content: document.getElementById("diaryFormContent").value.trim(),
+    is_pinned: document.getElementById("diaryFormPinned").checked
+  };
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving...`;
+
+  try {
+    if (id) {
+      await window.warrantyService.updateDiaryNote(id, noteData);
+    } else {
+      await window.warrantyService.createDiaryNote(noteData);
+    }
+    diaryNoteModalInstance.hide();
+    await loadDiaryNotes();
+  } catch (err) {
+    console.error("Save diary note error:", err);
+    alert("Failed to save note: " + err.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = `<i class="bi bi-check2 me-1"></i> Save Note`;
+  }
+};
+
+window.togglePinDiaryNote = async function (id) {
+  const note = allDiaryNotes.find((n) => n.id === id);
+  if (!note) return;
+  try {
+    await window.warrantyService.updateDiaryNote(id, { is_pinned: !note.is_pinned });
+    await loadDiaryNotes();
+  } catch (err) {
+    console.error("Toggle pin note error:", err);
+  }
+};
+
+window.deleteDiaryNoteRecord = async function (id) {
+  if (!confirm("Are you sure you want to delete this diary note?")) return;
+  try {
+    await window.warrantyService.deleteDiaryNote(id);
+    await loadDiaryNotes();
+  } catch (err) {
+    console.error("Delete diary note error:", err);
+    alert("Failed to delete note: " + err.message);
+  }
+};
+
 
 

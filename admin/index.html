@@ -9,8 +9,11 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+
     <!-- Custom Styles -->
-    <link rel="stylesheet" href="../css/style.css">
+    <link rel="stylesheet" href="../css/style.css?v=3.6">
 </head>
 <body class="bg-light">
 
@@ -65,13 +68,19 @@
             </li>
             <li class="nav-item">
                 <button class="nav-link" id="tabRevenueBtn" onclick="switchAdminTab('revenue')">
-                    <i class="bi bi-cash-stack me-2 text-warning"></i>Revenue Dashboard
+                    <i class="bi bi-graph-up-arrow me-2 text-warning"></i>Net Profit & Sales
                 </button>
             </li>
             <li class="nav-item">
                 <button class="nav-link" id="tabLeadsBtn" onclick="switchAdminTab('leads')">
                     <i class="bi bi-person-lines-fill me-2 text-info"></i>Leads & Enquiries
                     <span class="badge bg-danger rounded-pill ms-1 d-none" id="leadsNavBadge">0</span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="tabDiaryBtn" onclick="switchAdminTab('diary')">
+                    <i class="bi bi-journal-bookmark-fill me-2 text-danger"></i>Diary
+                    <span class="badge bg-danger-subtle text-danger border rounded-pill ms-1" id="diaryNavBadge">0</span>
                 </button>
             </li>
         </ul>
@@ -82,47 +91,54 @@
         <div id="viewUsersSection">
             <!-- STATS CARDS -->
             <div class="row g-3 mb-4">
+                <!-- CARD 1: TOTAL USERS -->
                 <div class="col-sm-6 col-xl-3">
-                    <div class="stat-card d-flex align-items-center justify-content-between">
+                    <div class="stat-card d-flex align-items-center justify-content-between" id="cardTotalUsers" onclick="openStatDetailModal('all')" style="cursor: pointer;" title="Click to view details">
                         <div>
-                            <span class="text-muted small fw-semibold">TOTAL USERS</span>
-                            <h3 class="stat-number text-dark" id="statTotal">0</h3>
+                            <span class="text-muted small fw-semibold text-uppercase">TOTAL USERS</span>
+                            <h3 class="stat-number text-dark mb-0" id="statTotal">0</h3>
                         </div>
-                        <div class="stat-icon bg-primary bg-opacity-10 text-primary">
-                            <i class="bi bi-people"></i>
+                        <div class="stat-icon stat-icon-btn bg-primary bg-opacity-10 text-primary" onclick="event.stopPropagation(); openStatDetailModal('all')" role="button" tabindex="0" title="Click icon to view details">
+                            <i class="bi bi-people" style="pointer-events: none;"></i>
                         </div>
                     </div>
                 </div>
+
+                <!-- CARD 2: ACTIVE LICENSES -->
                 <div class="col-sm-6 col-xl-3">
-                    <div class="stat-card d-flex align-items-center justify-content-between">
+                    <div class="stat-card d-flex align-items-center justify-content-between" id="cardActiveLicenses" onclick="openStatDetailModal('active')" style="cursor: pointer;" title="Click to view details">
                         <div>
-                            <span class="text-muted small fw-semibold">ACTIVE LICENSES</span>
-                            <h3 class="stat-number text-success" id="statActive">0</h3>
+                            <span class="text-muted small fw-semibold text-uppercase">ACTIVE LICENSES</span>
+                            <h3 class="stat-number text-success mb-0" id="statActive">0</h3>
                         </div>
-                        <div class="stat-icon bg-success bg-opacity-10 text-success">
-                            <i class="bi bi-patch-check"></i>
+                        <div class="stat-icon stat-icon-btn bg-success bg-opacity-10 text-success" onclick="event.stopPropagation(); openStatDetailModal('active')" role="button" tabindex="0" title="Click icon to view details">
+                            <i class="bi bi-patch-check" style="pointer-events: none;"></i>
                         </div>
                     </div>
                 </div>
+
+                <!-- CARD 3: EXPIRED LICENSES -->
                 <div class="col-sm-6 col-xl-3">
-                    <div class="stat-card d-flex align-items-center justify-content-between">
+                    <div class="stat-card d-flex align-items-center justify-content-between" id="cardExpiredLicenses" onclick="openStatDetailModal('expired')" style="cursor: pointer;" title="Click to view details">
                         <div>
-                            <span class="text-muted small fw-semibold">EXPIRED LICENSES</span>
-                            <h3 class="stat-number text-danger" id="statExpired">0</h3>
+                            <span class="text-muted small fw-semibold text-uppercase">EXPIRED LICENSES</span>
+                            <h3 class="stat-number text-danger mb-0" id="statExpired">0</h3>
                         </div>
-                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
-                            <i class="bi bi-x-circle"></i>
+                        <div class="stat-icon stat-icon-btn bg-danger bg-opacity-10 text-danger" onclick="event.stopPropagation(); openStatDetailModal('expired')" role="button" tabindex="0" title="Click icon to view details">
+                            <i class="bi bi-x-circle" style="pointer-events: none;"></i>
                         </div>
                     </div>
                 </div>
+
+                <!-- CARD 4: EXPIRING IN 30 DAYS -->
                 <div class="col-sm-6 col-xl-3">
-                    <div class="stat-card d-flex align-items-center justify-content-between">
+                    <div class="stat-card d-flex align-items-center justify-content-between" id="cardExpiringLicenses" onclick="openStatDetailModal('expiring30')" style="cursor: pointer;" title="Click to view details">
                         <div>
-                            <span class="text-muted small fw-semibold">EXPIRING IN 30 DAYS</span>
-                            <h3 class="stat-number text-warning" id="statExpiring">0</h3>
+                            <span class="text-muted small fw-semibold text-uppercase">EXPIRING IN 30 DAYS</span>
+                            <h3 class="stat-number text-warning mb-0" id="statExpiring">0</h3>
                         </div>
-                        <div class="stat-icon bg-warning bg-opacity-10 text-warning">
-                            <i class="bi bi-clock-history"></i>
+                        <div class="stat-icon stat-icon-btn bg-warning bg-opacity-10 text-warning" onclick="event.stopPropagation(); openStatDetailModal('expiring30')" role="button" tabindex="0" title="Click icon to view details">
+                            <i class="bi bi-clock-history" style="pointer-events: none;"></i>
                         </div>
                     </div>
                 </div>
@@ -130,7 +146,7 @@
 
             <!-- USERS TABLE CARD -->
             <div class="table-card">
-                <div class="row g-3 align-items-center justify-content-between mb-4">
+                <div class="row g-3 align-items-center justify-content-between mb-3">
                     <div class="col-md-5">
                         <div class="input-group">
                             <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
@@ -139,10 +155,11 @@
                     </div>
                     <div class="col-md-7 d-flex flex-wrap gap-2 justify-content-md-end">
                         <select id="statusFilter" class="form-select w-auto">
-                            <option value="all">All Statuses</option>
-                            <option value="active">Active</option>
-                            <option value="expired">Expired</option>
-                            <option value="void">Void</option>
+                            <option value="all">All Statuses (Total Users)</option>
+                            <option value="active">Active Licenses</option>
+                            <option value="expired">Expired Licenses</option>
+                            <option value="expiring30">Expiring in 30 Days</option>
+                            <option value="void">Void / Suspended</option>
                         </select>
                         <button class="btn btn-outline-secondary" onclick="exportToCSV()">
                             <i class="bi bi-download me-1"></i> Export CSV
@@ -154,6 +171,15 @@
                             <i class="bi bi-person-plus-fill me-1"></i> Add User
                         </button>
                     </div>
+                </div>
+
+                <!-- ACTIVE FILTER CHIP BANNER -->
+                <div id="activeFilterBadgeContainer" class="d-none mb-3">
+                    <span class="badge bg-light text-dark border p-2 d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-funnel-fill text-primary"></i>
+                        <span id="activeFilterBadgeText">Filter: Active</span>
+                        <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1 text-decoration-none" onclick="clearTableStatusFilter()" title="Clear filter">✕ Reset Filter</button>
+                    </span>
                 </div>
 
                 <!-- USERS TABLE -->
@@ -253,9 +279,9 @@
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                 <div>
                     <h4 class="fw-bold text-dark mb-1">
-                        <i class="bi bi-graph-up-arrow me-2 text-warning"></i>Revenue & Sales Dashboard
+                        <i class="bi bi-graph-up-arrow me-2 text-warning"></i>Net Profit & Sales Dashboard
                     </h4>
-                    <p class="text-muted small mb-0">Track real-time earnings, average license order value, and product revenue distribution.</p>
+                    <p class="text-muted small mb-0">Track real-time in-hand profit (Customer Sales minus Reseller Buying Cost) and supplier expenses.</p>
                 </div>
                 <div class="d-flex align-items-center gap-2">
                     <div class="btn-group shadow-sm" role="group" id="revenuePeriodGroup">
@@ -272,14 +298,14 @@
                 </div>
             </div>
 
-            <!-- 4 REVENUE KPI CARDS -->
+            <!-- 4 NET PROFIT & EXPENSE KPI CARDS -->
             <div class="row g-3 mb-4">
                 <div class="col-sm-6 col-xl-3">
                     <div class="stat-card d-flex align-items-center justify-content-between border-start border-4 border-success">
                         <div>
-                            <span class="text-muted small fw-semibold">TOTAL REVENUE</span>
+                            <span class="text-muted small fw-semibold text-uppercase">TOTAL NET PROFIT</span>
                             <h3 class="stat-number text-success mb-0" id="revTotalAmount">₹0.00</h3>
-                            <small class="text-muted" id="revTotalCount">0 licenses</small>
+                            <small class="text-muted" id="revTotalCount">Sales: ₹0 | Cost: ₹0</small>
                         </div>
                         <div class="stat-icon bg-success bg-opacity-10 text-success">
                             <i class="bi bi-cash-stack"></i>
@@ -289,9 +315,9 @@
                 <div class="col-sm-6 col-xl-3">
                     <div class="stat-card d-flex align-items-center justify-content-between border-start border-4 border-primary">
                         <div>
-                            <span class="text-muted small fw-semibold">THIS MONTH</span>
+                            <span class="text-muted small fw-semibold text-uppercase">THIS MONTH PROFIT</span>
                             <h3 class="stat-number text-primary mb-0" id="revMonthAmount">₹0.00</h3>
-                            <small class="text-muted" id="revMonthCount">0 new activations</small>
+                            <small class="text-muted" id="revMonthCount">In-hand net this month</small>
                         </div>
                         <div class="stat-icon bg-primary bg-opacity-10 text-primary">
                             <i class="bi bi-calendar3"></i>
@@ -301,9 +327,9 @@
                 <div class="col-sm-6 col-xl-3">
                     <div class="stat-card d-flex align-items-center justify-content-between border-start border-4 border-warning">
                         <div>
-                            <span class="text-muted small fw-semibold">TODAY'S REVENUE</span>
+                            <span class="text-muted small fw-semibold text-uppercase">TODAY'S PROFIT</span>
                             <h3 class="stat-number text-warning mb-0" id="revTodayAmount">₹0.00</h3>
-                            <small class="text-muted" id="revTodayCount">0 licenses today</small>
+                            <small class="text-muted" id="revTodayCount">Today in-hand net</small>
                         </div>
                         <div class="stat-icon bg-warning bg-opacity-10 text-warning">
                             <i class="bi bi-lightning-charge"></i>
@@ -311,14 +337,14 @@
                     </div>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="stat-card d-flex align-items-center justify-content-between border-start border-4 border-info">
+                    <div class="stat-card d-flex align-items-center justify-content-between border-start border-4 border-danger">
                         <div>
-                            <span class="text-muted small fw-semibold">AVG REVENUE / USER</span>
-                            <h3 class="stat-number text-info mb-0" id="revAvgAmount">₹0.00</h3>
-                            <small class="text-muted">Per license registered</small>
+                            <span class="text-muted small fw-semibold text-uppercase">TOTAL RESELLER COST</span>
+                            <h3 class="stat-number text-danger mb-0" id="revAvgAmount">₹0.00</h3>
+                            <small class="text-muted" id="revCostSubtext">Paid to 3rd party vendors</small>
                         </div>
-                        <div class="stat-icon bg-info bg-opacity-10 text-info">
-                            <i class="bi bi-pie-chart"></i>
+                        <div class="stat-icon bg-danger bg-opacity-10 text-danger">
+                            <i class="bi bi-wallet2"></i>
                         </div>
                     </div>
                 </div>
@@ -564,6 +590,67 @@
             </div>
         </div>
 
+        <!-- ================================================================= -->
+        <!-- TAB 5: DIARY & SECRET NOTES VIEW -->
+        <!-- ================================================================= -->
+        <div id="viewDiarySection" class="d-none">
+            <div class="table-card">
+                <!-- HEADER & CONTROLS -->
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <h4 class="fw-bold text-dark mb-0">
+                                <i class="bi bi-journal-bookmark-fill me-2 text-danger"></i>Admin Diary & Secret Notes
+                            </h4>
+                            <span class="badge bg-danger-subtle text-danger border rounded-pill px-3" id="diaryNotesCountBadge">0 Notes</span>
+                        </div>
+                        <p class="text-muted small mb-0">Private credentials, master logins, backup keys, supplier rate-lists, and rough calculations.</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-danger shadow-sm rounded-pill px-3" onclick="openAddDiaryNoteModal()">
+                            <i class="bi bi-plus-circle me-1"></i> Add New Note
+                        </button>
+                    </div>
+                </div>
+
+                <!-- CATEGORY PILLS & SEARCH -->
+                <div class="row g-3 align-items-center mb-4">
+                    <div class="col-lg-7">
+                        <div class="btn-group btn-group-sm flex-wrap shadow-sm" role="group" id="diaryCategoryGroup">
+                            <button type="button" class="btn btn-outline-danger active" onclick="filterDiaryCategory('all')" id="diaryCatAll">All (<span id="diaryCountAll">0</span>)</button>
+                            <button type="button" class="btn btn-outline-danger" onclick="filterDiaryCategory('credentials')" id="diaryCatCreds">🔑 Credentials (<span id="diaryCountCreds">0</span>)</button>
+                            <button type="button" class="btn btn-outline-danger" onclick="filterDiaryCategory('calculations')" id="diaryCatCalc">🧮 Calculations (<span id="diaryCountCalc">0</span>)</button>
+                            <button type="button" class="btn btn-outline-danger" onclick="filterDiaryCategory('general')" id="diaryCatGen">📝 General (<span id="diaryCountGen">0</span>)</button>
+                            <button type="button" class="btn btn-outline-danger" onclick="filterDiaryCategory('pinned')" id="diaryCatPin">📌 Pinned (<span id="diaryCountPin">0</span>)</button>
+                        </div>
+                    </div>
+                    <div class="col-lg-5">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text bg-light border-end-0"><i class="bi bi-search text-muted"></i></span>
+                            <input type="text" id="diarySearchInput" class="form-control border-start-0" placeholder="Search title, email, notes or math..." oninput="filterDiaryNotes()">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NOTES CARDS GRID -->
+                <div id="diaryNotesGrid" class="row g-3">
+                    <div class="col-12 text-center py-4 text-muted">
+                        <div class="spinner-border spinner-border-sm text-danger me-2"></div>Loading notes...
+                    </div>
+                </div>
+
+                <!-- EMPTY STATE -->
+                <div id="emptyDiaryState" class="text-center py-5 d-none">
+                    <i class="bi bi-journal-x display-4 text-muted d-block mb-3"></i>
+                    <h5 class="fw-bold text-secondary">No Diary Notes Found</h5>
+                    <p class="text-muted small">Save your secret logins, passwords, supplier UPIs, or calculations.</p>
+                    <button class="btn btn-outline-danger btn-sm rounded-pill px-3" onclick="openAddDiaryNoteModal()">
+                        <i class="bi bi-plus-circle me-1"></i> Create First Note
+                    </button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- ================================================================= -->
@@ -651,7 +738,7 @@
                                 <input type="number" class="form-control" id="formValidityMonths" value="12" min="1" required>
                             </div>
 
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label fw-semibold small">Status <span class="text-danger">*</span></label>
                                 <select class="form-select" id="formStatus" required>
                                     <option value="active">Active</option>
@@ -659,23 +746,82 @@
                                     <option value="void">Void / Suspended</option>
                                 </select>
                             </div>
-                            <div class="col-md-3">
-                                <label class="form-label fw-semibold small">Amount / Fee (₹) <span class="text-muted fw-normal">(Optional)</span></label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-light text-muted fw-bold">₹</span>
-                                    <input type="number" step="0.01" min="0" class="form-control" id="formAmount" placeholder="0.00">
-                                </div>
-                            </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label fw-semibold small">Invoice / Order Ref</label>
                                 <input type="text" class="form-control" id="formInvoiceNo" placeholder="e.g. INV-2026-001">
                             </div>
-                            <div class="col-md-3">
+                            <div class="col-md-4">
                                 <label class="form-label fw-semibold small">Duration Unit</label>
                                 <select class="form-select" id="formDurationType">
                                     <option value="month">Months</option>
                                     <option value="day">Days</option>
                                 </select>
+                            </div>
+
+                            <!-- Pricing & Profit Margin (Selling - Buy = Profit) -->
+                            <div class="col-12">
+                                <div class="card border rounded-3 p-3 bg-light shadow-sm">
+                                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                        <label class="form-label fw-bold small text-dark mb-0 d-flex align-items-center gap-2">
+                                            <i class="bi bi-cash-stack text-success"></i>
+                                            <span>Pricing & Margin Calculation</span>
+                                            <span class="text-muted fw-normal">(Selling − Buy = Your Net Profit)</span>
+                                        </label>
+                                        <span class="badge bg-secondary-subtle text-secondary border small px-2 py-1" id="formProfitBadge">
+                                            Margin: ₹0.00
+                                        </span>
+                                    </div>
+
+                                    <div class="row g-2 align-items-end">
+                                        <!-- Selling Price -->
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-semibold small mb-1">
+                                                Selling Price (₹) <span class="text-success fw-normal">(Customer)</span>
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-white fw-bold text-success">₹</span>
+                                                <input type="number" step="0.01" min="0" class="form-control" id="formAmount" placeholder="100.00" oninput="updateProfitPreview()">
+                                            </div>
+                                        </div>
+
+                                        <!-- Buy / Cost Price -->
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-semibold small mb-1">
+                                                Buy Price (₹) <span class="text-muted fw-normal">(0 if In-house)</span>
+                                            </label>
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-white fw-bold text-danger">₹</span>
+                                                <input type="number" step="0.01" min="0" class="form-control" id="formCostPrice" placeholder="70.00" oninput="updateProfitPreview()">
+                                            </div>
+                                        </div>
+
+                                        <!-- Vendor Name (Optional) -->
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-semibold small mb-1">
+                                                Vendor / Reseller <span class="text-muted fw-normal">(Optional)</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="formVendorName" placeholder="e.g. Techshup OTT" list="vendorNameDatalist">
+                                            <datalist id="vendorNameDatalist"></datalist>
+                                        </div>
+
+                                        <!-- Vendor WhatsApp (Optional) -->
+                                        <div class="col-md-3">
+                                            <label class="form-label fw-semibold small mb-1">
+                                                Vendor WhatsApp <span class="text-muted fw-normal">(Optional)</span>
+                                            </label>
+                                            <input type="text" class="form-control" id="formVendorPhone" placeholder="+91 9876543210">
+                                            <input type="hidden" id="formVendorRef" value="">
+                                        </div>
+
+                                        <!-- Live Margin Calculation Banner -->
+                                        <div class="col-12 mt-2">
+                                            <div id="formProfitPreviewBox" class="p-2 rounded-2 small d-none border">
+                                                <i class="bi bi-calculator me-1"></i>
+                                                <span id="formProfitPreviewText"></span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="col-12">
@@ -1143,6 +1289,163 @@ SELECT public.update_admin_account('admin@foxzen.com', 'YourNewPassword123!');
         </div>
     </div>
 
+    <!-- ================================================================= -->
+    <!-- MODAL: ADD / EDIT DIARY NOTE -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="diaryNoteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2" id="diaryNoteModalTitle">
+                        <i class="bi bi-journal-plus text-danger"></i> Add Note to Diary
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="diaryNoteForm" onsubmit="handleDiaryNoteSubmit(event)">
+                    <div class="modal-body p-4">
+                        <input type="hidden" id="editDiaryNoteId">
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label class="form-label fw-semibold small">Note Title <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="diaryFormTitle" placeholder="e.g. Techshup OTT UPI & Rates, or Figma Master Admin" required>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small">Category <span class="text-danger">*</span></label>
+                                <select class="form-select" id="diaryFormCategory" required onchange="onDiaryCategoryChange()">
+                                    <option value="credentials">🔑 Credentials & Login</option>
+                                    <option value="calculations">🧮 Calculation & Math</option>
+                                    <option value="general">📝 General Note</option>
+                                </select>
+                            </div>
+
+                            <!-- Credentials Fields (Shown by default for credentials) -->
+                            <div id="diaryCredFields" class="col-12">
+                                <div class="card border rounded-3 bg-light p-3">
+                                    <label class="form-label fw-bold small text-dark mb-2">
+                                        <i class="bi bi-shield-lock-fill text-danger me-1"></i> Login & Secret Details <span class="text-muted fw-normal">(Optional)</span>
+                                    </label>
+                                    <div class="row g-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold small mb-1">Email / Username / UPI</label>
+                                            <input type="text" class="form-control form-control-sm font-monospace" id="diaryFormUsername" placeholder="e.g. admin@foxzen.in or techshup@okaxis">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label fw-semibold small mb-1">Password / Cookie / Secret Key</label>
+                                            <div class="input-group input-group-sm">
+                                                <input type="password" class="form-control font-monospace" id="diaryFormSecret" placeholder="••••••••••••">
+                                                <button type="button" class="btn btn-outline-secondary" onclick="toggleDiaryModalSecretVisibility()" title="Show/Hide Password">
+                                                    <i class="bi bi-eye" id="diarySecretEyeIcon"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label fw-semibold small">Notes / Content / Calculations</label>
+                                <textarea class="form-control font-monospace" id="diaryFormContent" rows="5" placeholder="Write any rates, rough calculations, API keys, or remarks here..."></textarea>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="diaryFormPinned">
+                                    <label class="form-check-label fw-semibold small text-dark" for="diaryFormPinned">
+                                        <i class="bi bi-pin-angle-fill text-danger me-1"></i> Pin this note to the top of Diary
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top bg-light">
+                        <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger rounded-pill px-4" id="saveDiaryBtn">
+                            <i class="bi bi-check2 me-1"></i> Save Note
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: STAT DETAIL / QUICK VIEW MODAL (Total, Active, Expired, Expiring) -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="statDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <div class="d-flex align-items-center gap-2">
+                        <div id="statModalIconBox" class="stat-icon bg-primary bg-opacity-10 text-primary" style="width: 40px; height: 40px; border-radius: 10px; font-size: 1.25rem;">
+                            <i class="bi bi-people" id="statModalIcon"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold text-dark mb-0" id="statModalTitle">User License Details</h5>
+                            <small class="text-muted" id="statModalSubtitle">Viewing records</small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-primary rounded-pill px-3 py-2" id="statModalCountBadge">0 records</span>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+
+                <div class="modal-body p-3">
+                    <!-- Quick category switcher pills -->
+                    <ul class="nav nav-pills nav-fill bg-light p-1 rounded-3 mb-3 small" id="statModalCategoryPills">
+                        <li class="nav-item">
+                            <button class="nav-link active py-1" id="statPillAll" onclick="switchStatModalCategory('all')">
+                                <i class="bi bi-people me-1"></i> Total (<span id="statPillCountAll">0</span>)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link py-1" id="statPillActive" onclick="switchStatModalCategory('active')">
+                                <i class="bi bi-patch-check me-1"></i> Active (<span id="statPillCountActive">0</span>)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link py-1" id="statPillExpired" onclick="switchStatModalCategory('expired')">
+                                <i class="bi bi-x-circle me-1"></i> Expired (<span id="statPillCountExpired">0</span>)
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link py-1" id="statPillExpiring" onclick="switchStatModalCategory('expiring30')">
+                                <i class="bi bi-clock-history me-1"></i> Expiring 30D (<span id="statPillCountExpiring">0</span>)
+                            </button>
+                        </li>
+                    </ul>
+
+                    <!-- Search bar inside modal -->
+                    <div class="input-group mb-3">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" id="statModalSearchInput" class="form-control border-start-0" placeholder="Search by customer name, product, mobile, or serial..." oninput="filterStatModalList()">
+                    </div>
+
+                    <!-- List Container -->
+                    <div id="statModalListContainer" class="d-flex flex-column gap-2" style="max-height: 480px; overflow-y: auto;">
+                        <!-- User items rendered here -->
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="statModalEmptyState" class="text-center py-5 d-none">
+                        <i class="bi bi-inbox display-5 text-muted d-block mb-2"></i>
+                        <h6 class="fw-bold text-secondary">No Records Found</h6>
+                        <p class="text-muted small mb-0">No licenses match this category or search filter.</p>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-3 btn-sm" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 btn-sm shadow-sm" id="statModalFilterTableBtn" onclick="applyStatFilterToTable()">
+                        <i class="bi bi-funnel-fill me-1"></i> Filter Main Table with These Users
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap JS Bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
@@ -1150,8 +1453,8 @@ SELECT public.update_admin_account('admin@foxzen.com', 'YourNewPassword123!');
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Application Scripts -->
-    <script src="../js/config.js?v=2.6"></script>
-    <script src="../js/supabaseClient.js?v=2.6"></script>
-    <script src="../js/admin.js?v=2.7"></script>
+    <script src="../js/config.js?v=3.7"></script>
+    <script src="../js/supabaseClient.js?v=3.7"></script>
+    <script src="../js/admin.js?v=3.7"></script>
 </body>
 </html>

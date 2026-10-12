@@ -276,11 +276,13 @@ body {
   padding: 22px;
   border: 1px solid #eef2f6;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
 }
 
 .stat-icon {
@@ -291,6 +293,26 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 1.5rem;
+}
+
+.stat-icon i {
+  pointer-events: none;
+}
+
+.stat-icon-btn {
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+.stat-icon-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  filter: brightness(0.95);
+}
+
+.stat-icon-btn:active {
+  transform: scale(0.94);
 }
 
 .stat-number {
@@ -781,5 +803,319 @@ footer a:hover {
   background: #1eb855;
   color: white;
 }
+
+/* --------------------------------------------------------------------------
+   Diary & Secret Notes Styles
+   -------------------------------------------------------------------------- */
+.diary-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.diary-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+}
+
+.diary-card.is-pinned {
+  border-left: 4px solid #dc3545 !important;
+  background: #fffcfc;
+}
+
+.secret-mask-text {
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 4px 8px;
+  user-select: all;
+}
+
+/* ==========================================================================
+   MULTI-DEVICE & MOBILE RESPONSIVENESS (PHONES, TABLETS, DESKTOPS, & PRINT)
+   ========================================================================== */
+
+/* 1. Universal Touch & Form Enhancements (iOS Safari & Android) */
+@media (max-width: 768px) {
+  /* Prevent iOS Safari auto-zoom on input focus by enforcing 16px base font */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Smooth momentum touch scrolling for all scrollable containers */
+  .table-responsive,
+  .admin-main-tabs,
+  .search-tabs,
+  #statModalCategoryPills,
+  #statModalListContainer {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+}
+
+/* 2. Mobile Phones (< 576px) — iPhone SE, 12-16, Samsung Galaxy, Pixel */
+@media (max-width: 576px) {
+  /* Top Nav & Branding */
+  .top-nav {
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 28px;
+  }
+
+  .top-nav .brand-logo {
+    font-size: 1.3rem;
+  }
+
+  .top-nav .d-flex {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px !important;
+  }
+
+  /* Hero Section */
+  .hero {
+    padding: 16px 0 95px 0;
+  }
+
+  .hero-title {
+    font-size: 1.6rem;
+    line-height: 1.25;
+    padding: 0 8px;
+  }
+
+  .hero-subtitle {
+    font-size: 0.95rem;
+    padding: 0 10px;
+  }
+
+  /* Search Card */
+  .search-card-wrapper {
+    margin-top: -60px;
+    padding: 0 4px;
+  }
+
+  .search-card {
+    padding: 22px 16px;
+    border-radius: 16px;
+  }
+
+  /* Search Identifier Tabs: smooth horizontal scroll on narrow screens */
+  #searchTabs {
+    margin-bottom: 18px !important;
+  }
+
+  .search-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    width: 100%;
+    justify-content: flex-start !important;
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .search-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+  }
+
+  .search-tabs .nav-link {
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    margin: 0 2px;
+    flex-shrink: 0;
+  }
+
+  .search-input-group .form-control {
+    height: 52px;
+    padding-left: 44px;
+    border-radius: 12px;
+  }
+
+  .search-input-group .search-icon {
+    left: 14px;
+    font-size: 1.15rem;
+  }
+
+  .btn-search {
+    padding: 12px 20px;
+    font-size: 0.95rem;
+    border-radius: 12px;
+  }
+
+  /* Warranty Result Display */
+  .result-status-banner {
+    padding: 12px 14px;
+    font-size: 0.92rem;
+  }
+
+  .warranty-detail-card {
+    padding: 12px !important;
+  }
+
+  .warranty-detail-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 8px 0;
+  }
+
+  .warranty-label {
+    font-size: 0.85rem;
+    width: 100%;
+  }
+
+  .warranty-val {
+    text-align: left;
+    font-size: 0.9rem;
+    word-break: break-word;
+    width: 100%;
+    padding-left: 18px;
+  }
+
+  /* Certificate Box */
+  .certificate-box {
+    padding: 18px 14px;
+    border-width: 2px;
+  }
+
+  .certificate-watermark {
+    font-size: 2.8rem;
+  }
+
+  /* Admin Dashboard Layout */
+  .admin-navbar {
+    padding: 8px 0;
+  }
+
+  .admin-navbar .container-fluid {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .admin-navbar .navbar-brand {
+    font-size: 1.1rem;
+  }
+
+  .admin-navbar .navbar-brand span {
+    font-size: 0.95rem;
+  }
+
+  /* Admin Main Tabs: native-like horizontal swipe */
+  .admin-main-tabs {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden;
+    white-space: nowrap !important;
+    padding: 6px 10px 0 10px !important;
+    border-radius: 10px 10px 0 0;
+    scrollbar-width: none;
+  }
+
+  .admin-main-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .admin-main-tabs .nav-link {
+    padding: 9px 14px;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Stat KPI Cards */
+  .stat-card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .stat-number {
+    font-size: 1.65rem;
+  }
+
+  .stat-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 1.3rem;
+  }
+
+  /* Quick View Modal Category Switcher */
+  #statModalCategoryPills {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    scrollbar-width: none;
+  }
+
+  #statModalCategoryPills::-webkit-scrollbar {
+    display: none;
+  }
+
+  #statModalCategoryPills .nav-link {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+  }
+
+  /* Pricing Cards on Phone */
+  .pricing-card {
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+
+  .plan-price-num {
+    font-size: 2.1rem;
+  }
+
+  /* Table Cards */
+  .table-card {
+    padding: 16px 12px;
+    border-radius: 12px;
+  }
+}
+
+/* 3. Tablets & Small Laptops (576px to 991px) — iPad, Android Tablets */
+@media (min-width: 577px) and (max-width: 991px) {
+  .hero-title {
+    font-size: 2rem;
+  }
+
+  .search-card {
+    padding: 30px 28px;
+  }
+
+  .admin-main-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .pricing-card {
+    padding: 28px 20px;
+  }
+}
+
+/* 4. Large Screens & Desktops (>= 992px) */
+@media (min-width: 992px) {
+  .search-card:hover {
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  .stat-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  }
+}
+
 
 
