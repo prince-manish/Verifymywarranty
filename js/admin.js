@@ -240,8 +240,19 @@ window.onProductSelectChange = function () {
   if (warranty) document.getElementById("formWarrantyMonths").value = warranty;
   if (validity) document.getElementById("formValidityMonths").value = validity;
   if (type) document.getElementById("formDurationType").value = type;
-  if (amount !== null && amount !== undefined && amount !== "") {
-    document.getElementById("formAmount").value = amount;
+
+  const currentAmt = document.getElementById("formAmount").value.trim();
+  const prodAmt = parseFloat(amount);
+  if (!isNaN(prodAmt) && prodAmt > 0) {
+    // If product has a positive catalog price, prefill it if user hasn't set custom price
+    if (!currentAmt || parseFloat(currentAmt) === 0) {
+      document.getElementById("formAmount").value = prodAmt;
+    }
+  } else if (!currentAmt) {
+    document.getElementById("formAmount").value = "";
+  }
+  if (typeof window.updateProfitPreview === "function") {
+    window.updateProfitPreview();
   }
 };
 
@@ -1267,8 +1278,8 @@ window.openEditModal = function (id) {
   document.getElementById("formWarrantyMonths").value = item.warranty_months || 12;
   document.getElementById("formValidityMonths").value = item.validity_months || 12;
   document.getElementById("formDurationType").value = item.warranty_type || "month";
-  document.getElementById("formAmount").value = (item.amount !== undefined && item.amount !== null) ? item.amount : "";
-  document.getElementById("formCostPrice").value = (item.cost_price !== undefined && item.cost_price !== null && item.cost_price !== "") ? item.cost_price : "";
+  document.getElementById("formAmount").value = (item.amount !== undefined && item.amount !== null && parseFloat(item.amount) > 0) ? item.amount : "";
+  document.getElementById("formCostPrice").value = (item.cost_price !== undefined && item.cost_price !== null && parseFloat(item.cost_price) > 0) ? item.cost_price : "";
   document.getElementById("formVendorName").value = item.vendor_name || "";
   document.getElementById("formVendorPhone").value = item.vendor_phone || "";
   const vendorRefEl = document.getElementById("formVendorRef");

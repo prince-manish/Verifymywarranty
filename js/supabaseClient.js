@@ -602,7 +602,7 @@ class WarrantyService {
         return { data: this.getDemoRecords(), error: null };
       }
 
-      // Merge local vendor/cost enrichment if Supabase table didn't have those columns yet
+      // Merge local vendor/cost/amount enrichment if Supabase table didn't have those columns yet
       if (data && Array.isArray(data)) {
         const demoMap = {};
         this.getDemoRecords().forEach((d) => {
@@ -611,23 +611,29 @@ class WarrantyService {
         });
         const enriched = data.map((item) => {
           const match = demoMap[item.id] || demoMap[item.serial_number];
+          const hasDbAmount = item.amount !== undefined && item.amount !== null && parseFloat(item.amount) > 0;
+          const matchAmount = match && match.amount !== undefined && match.amount !== null && parseFloat(match.amount) > 0 ? parseFloat(match.amount) : null;
+          const resolvedAmount = hasDbAmount ? parseFloat(item.amount) : (matchAmount !== null ? matchAmount : (parseFloat(item.amount) || 0));
+
           if (match) {
             return {
-              source_type: item.source_type !== undefined ? item.source_type : (match.source_type || "own"),
-              vendor_name: item.vendor_name !== undefined ? item.vendor_name : (match.vendor_name || ""),
-              vendor_phone: item.vendor_phone !== undefined ? item.vendor_phone : (match.vendor_phone || ""),
-              cost_price: item.cost_price !== undefined ? item.cost_price : (match.cost_price || 0),
-              vendor_ref: item.vendor_ref !== undefined ? item.vendor_ref : (match.vendor_ref || ""),
-              ...item
+              ...item,
+              amount: resolvedAmount,
+              source_type: (item.source_type && item.source_type !== "own") ? item.source_type : (match.source_type || item.source_type || "own"),
+              vendor_name: item.vendor_name || match.vendor_name || "",
+              vendor_phone: item.vendor_phone || match.vendor_phone || "",
+              cost_price: (item.cost_price !== undefined && item.cost_price !== null && parseFloat(item.cost_price) > 0) ? parseFloat(item.cost_price) : (parseFloat(match.cost_price) || 0),
+              vendor_ref: item.vendor_ref || match.vendor_ref || ""
             };
           }
           return {
             source_type: item.source_type || "own",
             vendor_name: item.vendor_name || "",
             vendor_phone: item.vendor_phone || "",
-            cost_price: item.cost_price || 0,
+            cost_price: parseFloat(item.cost_price) || 0,
             vendor_ref: item.vendor_ref || "",
-            ...item
+            ...item,
+            amount: resolvedAmount
           };
         });
         return { data: enriched, error: null };
@@ -654,42 +660,73 @@ class WarrantyService {
     if (this.isLive) {
       let { data, error } = await this.client.from("warranties").insert([newRecord]).select();
 
-      // If new columns not yet migrated in Supabase, retry without them safely
+      // If vendor/cost columns not yet migrated in Supabase, retry without them WHILE PRESERVING AMOUNT!
       if (error && (
-        error.message?.includes("amount") ||
         error.message?.includes("source_type") ||
         error.message?.includes("vendor_name") ||
         error.message?.includes("vendor_phone") ||
         error.message?.includes("cost_price") ||
         error.message?.includes("vendor_ref") ||
+        error.message?.includes("amount") ||
         error.code === "42703" ||
         error.code === "PGRST204"
       )) {
-        const fallbackPayload = { ...newRecord };
-        delete fallbackPayload.amount;
-        delete fallbackPayload.source_type;
-        delete fallbackPayload.vendor_name;
-        delete fallbackPayload.vendor_phone;
-        delete fallbackPayload.cost_price;
-        delete fallbackPayload.vendor_ref;
+        console.warn("Supabase insert initial attempt error, retrying without vendor columns while preserving amount:", error.message || error);
+        const vendorFallback = { ...newRecord };
+        delete vendorFallback.source_type;
+        delete vendorFallback.vendor_name;
+        delete vendorFallback.vendor_phone;
+        delete vendorFallback.cost_price;
+        delete vendorFallback.vendor_ref;
 
-        const retry = await this.client.from("warranties").insert([fallbackPayload]).select();
-        if (!retry.error) {
-          data = retry.data ? [{ ...newRecord, ...retry.data[0] }] : [newRecord];
+        const retry1 = await this.client.from("warranties").insert([vendorFallback]).select();
+        if (!retry1.error) {
+          data = retry1.data;
           error = null;
+        } else {
+          // If it still failed and specifically complains about 'amount', only then delete amount
+          if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
+            console.warn("Supabase table missing amount column. Retrying without amount:", retry1.error.message || retry1.error);
+            const noAmountFallback = { ...vendorFallback };
+            delete noAmountFallback.amount;
+            const retry2 = await this.client.from("warranties").insert([noAmountFallback]).select();
+            if (!retry2.error) {
+              data = retry2.data;
+              error = null;
+            } else {
+              error = retry2.error;
+            }
+          } else {
+            error = retry1.error;
+          }
         }
       }
 
-      // Always maintain in local storage cache for instant offline & vendor sync
+      // Always maintain in local storage cache with FULL user-provided fields (including amount)
+      const finalAmt = (newRecord.amount !== undefined && newRecord.amount !== null && parseFloat(newRecord.amount) > 0)
+        ? parseFloat(newRecord.amount)
+        : (data && data[0] && data[0].amount ? parseFloat(data[0].amount) : 0);
+
+      const recordToCache = {
+        ...newRecord,
+        ...(data && data[0] ? data[0] : {}),
+        amount: finalAmt,
+        cost_price: (newRecord.cost_price !== undefined && newRecord.cost_price !== null) ? parseFloat(newRecord.cost_price) : 0,
+        source_type: newRecord.source_type || "own",
+        vendor_name: newRecord.vendor_name || "",
+        vendor_phone: newRecord.vendor_phone || "",
+        vendor_ref: newRecord.vendor_ref || ""
+      };
+
       const list = this.getDemoRecords();
-      list.unshift(data && data[0] ? { ...newRecord, ...data[0] } : newRecord);
+      list.unshift(recordToCache);
       this.saveDemoRecords(list);
 
       if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
         newRecord.id = "demo-" + Date.now();
-        return { data: newRecord, error: null };
+        return { data: recordToCache, error: null };
       }
-      return { data: data ? data[0] : newRecord, error };
+      return { data: recordToCache, error };
     } else {
       newRecord.id = "demo-" + Date.now();
       const list = this.getDemoRecords();
@@ -709,44 +746,64 @@ class WarrantyService {
         .eq("id", id)
         .select();
 
-      // If new columns not yet migrated in Supabase, retry without them safely
+      // If vendor/cost columns not yet migrated in Supabase, retry without them WHILE PRESERVING AMOUNT!
       if (error && (
-        error.message?.includes("amount") ||
         error.message?.includes("source_type") ||
         error.message?.includes("vendor_name") ||
         error.message?.includes("vendor_phone") ||
         error.message?.includes("cost_price") ||
         error.message?.includes("vendor_ref") ||
+        error.message?.includes("amount") ||
         error.code === "42703" ||
         error.code === "PGRST204"
       )) {
-        const fallbackUpdates = { ...updates };
-        delete fallbackUpdates.amount;
-        delete fallbackUpdates.source_type;
-        delete fallbackUpdates.vendor_name;
-        delete fallbackUpdates.vendor_phone;
-        delete fallbackUpdates.cost_price;
-        delete fallbackUpdates.vendor_ref;
+        console.warn("Supabase update initial attempt error, retrying without vendor columns while preserving amount:", error.message || error);
+        const vendorUpdates = { ...updates };
+        delete vendorUpdates.source_type;
+        delete vendorUpdates.vendor_name;
+        delete vendorUpdates.vendor_phone;
+        delete vendorUpdates.cost_price;
+        delete vendorUpdates.vendor_ref;
 
-        const retry = await this.client.from("warranties").update(fallbackUpdates).eq("id", id).select();
-        if (!retry.error) {
-          data = retry.data;
+        const retry1 = await this.client.from("warranties").update(vendorUpdates).eq("id", id).select();
+        if (!retry1.error) {
+          data = retry1.data;
           error = null;
+        } else {
+          if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
+            const noAmtUpdates = { ...vendorUpdates };
+            delete noAmtUpdates.amount;
+            const retry2 = await this.client.from("warranties").update(noAmtUpdates).eq("id", id).select();
+            if (!retry2.error) {
+              data = retry2.data;
+              error = null;
+            } else {
+              error = retry2.error;
+            }
+          } else {
+            error = retry1.error;
+          }
         }
       }
 
-      // Always sync with local demo storage cache
+      // Always sync with local demo storage cache with full updates
       const list = this.getDemoRecords();
-      const idx = list.findIndex((w) => w.id === id);
+      const idx = list.findIndex((w) => w.id === id || (updates.serial_number && w.serial_number === updates.serial_number));
       if (idx !== -1) {
         list[idx] = { ...list[idx], ...updates };
         this.saveDemoRecords(list);
       }
 
+      const returnRecord = {
+        ...(list[idx] || {}),
+        ...(data && data[0] ? data[0] : {}),
+        ...updates
+      };
+
       if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
-        return { data: list[idx] || null, error: null };
+        return { data: returnRecord, error: null };
       }
-      return { data: data ? data[0] : (list[idx] || null), error };
+      return { data: returnRecord, error };
     } else {
       const list = this.getDemoRecords();
       const idx = list.findIndex((w) => w.id === id);

@@ -3,6 +3,15 @@
 -- Run this script in the Supabase SQL Editor:
 -- https://supabase.com/dashboard/project/_/sql
 -- ============================================================================
+-- QUICK FIX FOR ₹0.00 AMOUNT & VENDOR COLUMNS (Run in SQL Editor if needed):
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS amount NUMERIC(10, 2) DEFAULT 0.00;
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) DEFAULT 'own';
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(150);
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_phone VARCHAR(50);
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2) DEFAULT 0.00;
+-- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_ref VARCHAR(100);
+-- NOTIFY pgrst, 'reload schema';
+-- ============================================================================
 
 -- 1. Create table for Products Catalog
 CREATE TABLE IF NOT EXISTS public.products (
