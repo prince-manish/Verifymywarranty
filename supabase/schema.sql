@@ -3,13 +3,18 @@
 -- Run this script in the Supabase SQL Editor:
 -- https://supabase.com/dashboard/project/_/sql
 -- ============================================================================
--- QUICK FIX FOR ₹0.00 AMOUNT & VENDOR COLUMNS (Run in SQL Editor if needed):
+-- QUICK FIX FOR ₹0.00 AMOUNT, VENDORS, & RENEWALS (Run in SQL Editor):
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS amount NUMERIC(10, 2) DEFAULT 0.00;
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) DEFAULT 'own';
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_name VARCHAR(150);
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_phone VARCHAR(50);
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS cost_price NUMERIC(10, 2) DEFAULT 0.00;
 -- ALTER TABLE public.warranties ADD COLUMN IF NOT EXISTS vendor_ref VARCHAR(100);
+-- CREATE TABLE IF NOT EXISTS public.license_renewals (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), warranty_id UUID REFERENCES public.warranties(id) ON DELETE CASCADE, serial_number VARCHAR(100) NOT NULL, customer_name VARCHAR(150), customer_email VARCHAR(150), customer_mobile VARCHAR(50), product_name VARCHAR(255) NOT NULL, renewal_date DATE NOT NULL DEFAULT CURRENT_DATE, service_start_date DATE, months_added INT NOT NULL DEFAULT 12, duration_type VARCHAR(10) NOT NULL DEFAULT 'month', old_expiry DATE, new_expiry DATE NOT NULL, amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00, cost_price NUMERIC(10, 2) DEFAULT 0.00, payment_ref VARCHAR(100), notes TEXT, created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL);
+-- ALTER TABLE public.license_renewals ADD COLUMN IF NOT EXISTS service_start_date DATE;
+-- ALTER TABLE public.license_renewals ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "Public can view renewals" ON public.license_renewals FOR SELECT TO anon, authenticated USING (true);
+-- CREATE POLICY "Admins have full access to renewals" ON public.license_renewals FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 -- NOTIFY pgrst, 'reload schema';
 -- ============================================================================
 
@@ -439,5 +444,55 @@ TO anon, authenticated
 USING (true)
 WITH CHECK (true);
 
+-- ============================================================================
+-- 9. License Renewals & Recurring Payments Table (Idea 1)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS public.license_renewals (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    warranty_id UUID REFERENCES public.warranties(id) ON DELETE CASCADE,
+    serial_number VARCHAR(100) NOT NULL,
+    customer_name VARCHAR(150),
+    customer_email VARCHAR(150),
+    customer_mobile VARCHAR(50),
+    product_name VARCHAR(255) NOT NULL,
+    renewal_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    service_start_date DATE,
+    months_added INT NOT NULL DEFAULT 12,
+    duration_type VARCHAR(10) NOT NULL DEFAULT 'month',  -- 'month' or 'day'
+    old_expiry DATE,
+    new_expiry DATE NOT NULL,
+    amount NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    cost_price NUMERIC(10, 2) DEFAULT 0.00,
+    payment_ref VARCHAR(100),                            -- UPI / GPay / UTR / Order No
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Ensure column exists if table was already created
+ALTER TABLE public.license_renewals ADD COLUMN IF NOT EXISTS service_start_date DATE;
+
+CREATE INDEX IF NOT EXISTS idx_renewals_warranty_id ON public.license_renewals (warranty_id);
+CREATE INDEX IF NOT EXISTS idx_renewals_serial ON public.license_renewals (LOWER(TRIM(serial_number)));
+CREATE INDEX IF NOT EXISTS idx_renewals_date ON public.license_renewals (renewal_date DESC);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE public.license_renewals ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can view renewals" ON public.license_renewals;
+CREATE POLICY "Public can view renewals"
+ON public.license_renewals
+FOR SELECT
+TO anon, authenticated
+USING (true);
+
+DROP POLICY IF EXISTS "Admins have full access to renewals" ON public.license_renewals;
+CREATE POLICY "Admins have full access to renewals"
+ON public.license_renewals
+FOR ALL
+TO anon, authenticated
+USING (true)
+WITH CHECK (true);
+
 NOTIFY pgrst, 'reload schema';
+
 

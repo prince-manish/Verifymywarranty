@@ -254,11 +254,23 @@ const DEFAULT_DEMO_DIARY_NOTES = [
   }
 ];
 
+// Initial Seed Renewals (Empty by default)
+const DEFAULT_DEMO_RENEWALS = [];
+
+// Helper to check valid UUID to prevent Postgres 22P02 syntax errors
+function isValidUuid(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ""));
+}
+
 class WarrantyService {
   constructor() {
     this.client = null;
     this.isLive = false;
     this.init();
+  }
+
+  isValidUuid(id) {
+    return isValidUuid(id);
   }
 
   init() {
@@ -287,6 +299,9 @@ class WarrantyService {
     if (!localStorage.getItem("foxzen_diary_notes")) {
       localStorage.setItem("foxzen_diary_notes", JSON.stringify(DEFAULT_DEMO_DIARY_NOTES));
     }
+    if (!localStorage.getItem("foxzen_license_renewals")) {
+      localStorage.setItem("foxzen_license_renewals", JSON.stringify(DEFAULT_DEMO_RENEWALS));
+    }
   }
 
   getDemoDiaryNotes() {
@@ -300,6 +315,19 @@ class WarrantyService {
 
   saveDemoDiaryNotes(list) {
     localStorage.setItem("foxzen_diary_notes", JSON.stringify(list));
+  }
+
+  getDemoRenewals() {
+    try {
+      const data = localStorage.getItem("foxzen_license_renewals");
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  saveDemoRenewals(list) {
+    localStorage.setItem("foxzen_license_renewals", JSON.stringify(list));
   }
 
   getDemoRecords() {
@@ -598,7 +626,8 @@ class WarrantyService {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
+      if (error) {
+        console.warn("getAllWarranties Supabase error, falling back to local demo storage:", error.message || error);
         return { data: this.getDemoRecords(), error: null };
       }
 
@@ -615,6 +644,10 @@ class WarrantyService {
           const matchAmount = match && match.amount !== undefined && match.amount !== null && parseFloat(match.amount) > 0 ? parseFloat(match.amount) : null;
           const resolvedAmount = hasDbAmount ? parseFloat(item.amount) : (matchAmount !== null ? matchAmount : (parseFloat(item.amount) || 0));
 
+          const hasDbCost = item.cost_price !== undefined && item.cost_price !== null && parseFloat(item.cost_price) > 0;
+          const matchCost = match && match.cost_price !== undefined && match.cost_price !== null && parseFloat(match.cost_price) > 0 ? parseFloat(match.cost_price) : 0;
+          const resolvedCost = hasDbCost ? parseFloat(item.cost_price) : matchCost;
+
           if (match) {
             return {
               ...item,
@@ -622,7 +655,7 @@ class WarrantyService {
               source_type: (item.source_type && item.source_type !== "own") ? item.source_type : (match.source_type || item.source_type || "own"),
               vendor_name: item.vendor_name || match.vendor_name || "",
               vendor_phone: item.vendor_phone || match.vendor_phone || "",
-              cost_price: (item.cost_price !== undefined && item.cost_price !== null && parseFloat(item.cost_price) > 0) ? parseFloat(item.cost_price) : (parseFloat(match.cost_price) || 0),
+              cost_price: resolvedCost,
               vendor_ref: item.vendor_ref || match.vendor_ref || ""
             };
           }
@@ -630,7 +663,7 @@ class WarrantyService {
             source_type: item.source_type || "own",
             vendor_name: item.vendor_name || "",
             vendor_phone: item.vendor_phone || "",
-            cost_price: parseFloat(item.cost_price) || 0,
+            cost_price: resolvedCost,
             vendor_ref: item.vendor_ref || "",
             ...item,
             amount: resolvedAmount
@@ -638,7 +671,7 @@ class WarrantyService {
         });
         return { data: enriched, error: null };
       }
-      return { data: data || [], error };
+      return { data: data || [], error: null };
     } else {
       const list = this.getDemoRecords();
       return { data: list, error: null };
@@ -646,89 +679,113 @@ class WarrantyService {
   }
 
   async createWarranty(record) {
+    const rawCost = record.cost_price !== undefined && record.cost_price !== null && record.cost_price !== ""
+      ? parseFloat(record.cost_price)
+      : 0;
+    const rawAmt = record.amount !== undefined && record.amount !== null && record.amount !== ""
+      ? parseFloat(record.amount)
+      : 0;
+
     const newRecord = {
-      source_type: record.source_type || "own",
+      source_type: record.source_type || (rawCost > 0 || record.vendor_name ? "reseller" : "own"),
       vendor_name: record.vendor_name || "",
       vendor_phone: record.vendor_phone || "",
-      cost_price: record.cost_price !== undefined ? parseFloat(record.cost_price) || 0 : 0,
+      cost_price: isNaN(rawCost) ? 0 : rawCost,
       vendor_ref: record.vendor_ref || "",
       ...record,
-      created_at: new Date().toISOString(),
+      amount: isNaN(rawAmt) ? 0 : rawAmt,
+      cost_price: isNaN(rawCost) ? 0 : rawCost,
+      created_at: record.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
 
     if (this.isLive) {
-      let { data, error } = await this.client.from("warranties").insert([newRecord]).select();
+      let data = null;
+      let error = null;
 
-      // If vendor/cost columns not yet migrated in Supabase, retry without them WHILE PRESERVING AMOUNT!
-      if (error && (
-        error.message?.includes("source_type") ||
-        error.message?.includes("vendor_name") ||
-        error.message?.includes("vendor_phone") ||
-        error.message?.includes("cost_price") ||
-        error.message?.includes("vendor_ref") ||
-        error.message?.includes("amount") ||
-        error.code === "42703" ||
-        error.code === "PGRST204"
-      )) {
-        console.warn("Supabase insert initial attempt error, retrying without vendor columns while preserving amount:", error.message || error);
-        const vendorFallback = { ...newRecord };
-        delete vendorFallback.source_type;
-        delete vendorFallback.vendor_name;
-        delete vendorFallback.vendor_phone;
-        delete vendorFallback.cost_price;
-        delete vendorFallback.vendor_ref;
+      try {
+        const payload = { ...newRecord };
+        // If id is not a valid UUID, remove it so Supabase uses gen_random_uuid()
+        if (!isValidUuid(payload.id)) {
+          delete payload.id;
+        }
 
-        const retry1 = await this.client.from("warranties").insert([vendorFallback]).select();
-        if (!retry1.error) {
-          data = retry1.data;
-          error = null;
-        } else {
-          // If it still failed and specifically complains about 'amount', only then delete amount
-          if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
-            console.warn("Supabase table missing amount column. Retrying without amount:", retry1.error.message || retry1.error);
-            const noAmountFallback = { ...vendorFallback };
-            delete noAmountFallback.amount;
-            const retry2 = await this.client.from("warranties").insert([noAmountFallback]).select();
-            if (!retry2.error) {
-              data = retry2.data;
-              error = null;
-            } else {
-              error = retry2.error;
-            }
+        const res1 = await this.client.from("warranties").insert([payload]).select();
+        data = res1.data;
+        error = res1.error;
+
+        // If error due to missing vendor columns or amount in Supabase schema:
+        if (error && (
+          error.message?.includes("source_type") ||
+          error.message?.includes("vendor_name") ||
+          error.message?.includes("vendor_phone") ||
+          error.message?.includes("cost_price") ||
+          error.message?.includes("vendor_ref") ||
+          error.message?.includes("amount") ||
+          error.code === "42703" ||
+          error.code === "PGRST204"
+        )) {
+          console.warn("Supabase insert initial attempt error, retrying without vendor columns:", error.message || error);
+          const vendorFallback = { ...payload };
+          delete vendorFallback.source_type;
+          delete vendorFallback.vendor_name;
+          delete vendorFallback.vendor_phone;
+          delete vendorFallback.cost_price;
+          delete vendorFallback.vendor_ref;
+
+          const retry1 = await this.client.from("warranties").insert([vendorFallback]).select();
+          if (!retry1.error) {
+            data = retry1.data;
+            error = null;
           } else {
-            error = retry1.error;
+            // If it also failed due to amount or other column
+            if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
+              const noAmountFallback = { ...vendorFallback };
+              delete noAmountFallback.amount;
+              const retry2 = await this.client.from("warranties").insert([noAmountFallback]).select();
+              if (!retry2.error) {
+                data = retry2.data;
+                error = null;
+              } else {
+                error = retry2.error;
+              }
+            } else {
+              error = retry1.error;
+            }
           }
         }
+      } catch (err) {
+        console.warn("createWarranty Supabase exception, saving to local demo storage:", err);
+        error = err;
       }
 
-      // Always maintain in local storage cache with FULL user-provided fields (including amount)
-      const finalAmt = (newRecord.amount !== undefined && newRecord.amount !== null && parseFloat(newRecord.amount) > 0)
-        ? parseFloat(newRecord.amount)
-        : (data && data[0] && data[0].amount ? parseFloat(data[0].amount) : 0);
-
+      // Final record to cache locally with ALL fields intact
       const recordToCache = {
         ...newRecord,
         ...(data && data[0] ? data[0] : {}),
-        amount: finalAmt,
-        cost_price: (newRecord.cost_price !== undefined && newRecord.cost_price !== null) ? parseFloat(newRecord.cost_price) : 0,
-        source_type: newRecord.source_type || "own",
-        vendor_name: newRecord.vendor_name || "",
-        vendor_phone: newRecord.vendor_phone || "",
-        vendor_ref: newRecord.vendor_ref || ""
+        amount: newRecord.amount,
+        cost_price: newRecord.cost_price,
+        source_type: newRecord.source_type,
+        vendor_name: newRecord.vendor_name,
+        vendor_phone: newRecord.vendor_phone,
+        vendor_ref: newRecord.vendor_ref
       };
 
+      if (!recordToCache.id) {
+        recordToCache.id = "cust-" + Date.now();
+      }
+
+      // Always maintain in local demo storage cache
       const list = this.getDemoRecords();
       list.unshift(recordToCache);
       this.saveDemoRecords(list);
 
-      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
-        newRecord.id = "demo-" + Date.now();
-        return { data: recordToCache, error: null };
+      if (error) {
+        console.warn("Supabase insert could not complete in cloud, record safely saved in local storage:", error.message || error);
       }
-      return { data: recordToCache, error };
+      return { data: recordToCache, error: null };
     } else {
-      newRecord.id = "demo-" + Date.now();
+      newRecord.id = newRecord.id || "demo-" + Date.now();
       const list = this.getDemoRecords();
       list.unshift(newRecord);
       this.saveDemoRecords(list);
@@ -738,72 +795,122 @@ class WarrantyService {
 
   async updateWarranty(id, updates) {
     updates.updated_at = new Date().toISOString();
+    const isUuid = isValidUuid(id);
+
+    // Normalize cost_price and amount if passed
+    if (updates.cost_price !== undefined && updates.cost_price !== null && updates.cost_price !== "") {
+      updates.cost_price = parseFloat(updates.cost_price) || 0;
+    }
+    if (updates.amount !== undefined && updates.amount !== null && updates.amount !== "") {
+      updates.amount = parseFloat(updates.amount) || 0;
+    }
 
     if (this.isLive) {
-      let { data, error } = await this.client
-        .from("warranties")
-        .update(updates)
-        .eq("id", id)
-        .select();
+      let data = null;
+      let error = null;
 
-      // If vendor/cost columns not yet migrated in Supabase, retry without them WHILE PRESERVING AMOUNT!
-      if (error && (
-        error.message?.includes("source_type") ||
-        error.message?.includes("vendor_name") ||
-        error.message?.includes("vendor_phone") ||
-        error.message?.includes("cost_price") ||
-        error.message?.includes("vendor_ref") ||
-        error.message?.includes("amount") ||
-        error.code === "42703" ||
-        error.code === "PGRST204"
-      )) {
-        console.warn("Supabase update initial attempt error, retrying without vendor columns while preserving amount:", error.message || error);
-        const vendorUpdates = { ...updates };
-        delete vendorUpdates.source_type;
-        delete vendorUpdates.vendor_name;
-        delete vendorUpdates.vendor_phone;
-        delete vendorUpdates.cost_price;
-        delete vendorUpdates.vendor_ref;
+      try {
+        if (isUuid) {
+          // Live record in Supabase with valid UUID
+          const res1 = await this.client
+            .from("warranties")
+            .update(updates)
+            .eq("id", id)
+            .select();
+          data = res1.data;
+          error = res1.error;
 
-        const retry1 = await this.client.from("warranties").update(vendorUpdates).eq("id", id).select();
-        if (!retry1.error) {
-          data = retry1.data;
-          error = null;
-        } else {
-          if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
-            const noAmtUpdates = { ...vendorUpdates };
-            delete noAmtUpdates.amount;
-            const retry2 = await this.client.from("warranties").update(noAmtUpdates).eq("id", id).select();
-            if (!retry2.error) {
-              data = retry2.data;
+          // If vendor/cost columns not yet in Supabase schema, retry without them
+          if (error && (
+            error.message?.includes("source_type") ||
+            error.message?.includes("vendor_name") ||
+            error.message?.includes("vendor_phone") ||
+            error.message?.includes("cost_price") ||
+            error.message?.includes("vendor_ref") ||
+            error.message?.includes("amount") ||
+            error.code === "42703" ||
+            error.code === "PGRST204"
+          )) {
+            console.warn("Supabase update initial attempt error, retrying without vendor columns:", error.message || error);
+            const vendorUpdates = { ...updates };
+            delete vendorUpdates.source_type;
+            delete vendorUpdates.vendor_name;
+            delete vendorUpdates.vendor_phone;
+            delete vendorUpdates.cost_price;
+            delete vendorUpdates.vendor_ref;
+
+            const retry1 = await this.client.from("warranties").update(vendorUpdates).eq("id", id).select();
+            if (!retry1.error) {
+              data = retry1.data;
               error = null;
+            } else if (retry1.error.message?.includes("amount") || retry1.error.code === "42703" || retry1.error.code === "PGRST204") {
+              const noAmtUpdates = { ...vendorUpdates };
+              delete noAmtUpdates.amount;
+              const retry2 = await this.client.from("warranties").update(noAmtUpdates).eq("id", id).select();
+              if (!retry2.error) {
+                data = retry2.data;
+                error = null;
+              } else {
+                error = retry2.error;
+              }
             } else {
-              error = retry2.error;
+              error = retry1.error;
             }
-          } else {
-            error = retry1.error;
+          }
+        } else if (updates.serial_number) {
+          // Non-UUID record (demo/local). Check if it exists in Supabase by serial_number
+          try {
+            const { data: existingDb } = await this.client
+              .from("warranties")
+              .select("id")
+              .eq("serial_number", updates.serial_number)
+              .maybeSingle();
+
+            if (existingDb && existingDb.id) {
+              const res2 = await this.client
+                .from("warranties")
+                .update(updates)
+                .eq("id", existingDb.id)
+                .select();
+              if (!res2.error) {
+                data = res2.data;
+                error = null;
+              }
+            }
+          } catch (e) {
+            console.warn("Serial lookup update in Supabase skipped:", e);
           }
         }
+      } catch (err) {
+        console.warn("updateWarranty Supabase exception, syncing locally:", err);
+        error = err;
       }
 
       // Always sync with local demo storage cache with full updates
       const list = this.getDemoRecords();
       const idx = list.findIndex((w) => w.id === id || (updates.serial_number && w.serial_number === updates.serial_number));
+      let returnRecord = null;
       if (idx !== -1) {
         list[idx] = { ...list[idx], ...updates };
+        if (data && data[0]) {
+          list[idx] = { ...list[idx], ...data[0], ...updates };
+        }
+        this.saveDemoRecords(list);
+        returnRecord = list[idx];
+      } else {
+        returnRecord = {
+          id: id || ("cust-" + Date.now()),
+          ...(data && data[0] ? data[0] : {}),
+          ...updates
+        };
+        list.unshift(returnRecord);
         this.saveDemoRecords(list);
       }
 
-      const returnRecord = {
-        ...(list[idx] || {}),
-        ...(data && data[0] ? data[0] : {}),
-        ...updates
-      };
-
-      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
-        return { data: returnRecord, error: null };
+      if (error) {
+        console.warn("Supabase update encountered issue, local cache updated successfully:", error.message || error);
       }
-      return { data: returnRecord, error };
+      return { data: returnRecord, error: null };
     } else {
       const list = this.getDemoRecords();
       const idx = list.findIndex((w) => w.id === id);
@@ -812,26 +919,26 @@ class WarrantyService {
         this.saveDemoRecords(list);
         return { data: list[idx], error: null };
       }
-      return { data: null, error: { message: "Record not found" } };
+      const newRec = { id: id || ("demo-" + Date.now()), ...updates };
+      list.unshift(newRec);
+      this.saveDemoRecords(list);
+      return { data: newRec, error: null };
     }
   }
 
   async deleteWarranty(id) {
-    if (this.isLive) {
-      const { error } = await this.client.from("warranties").delete().eq("id", id);
-      if (error && (error.code === "PGRST205" || error.message?.includes("warranties"))) {
-        let list = this.getDemoRecords();
-        list = list.filter((w) => w.id !== id);
-        this.saveDemoRecords(list);
-        return { error: null };
+    const isUuid = isValidUuid(id);
+    if (this.isLive && isUuid) {
+      try {
+        await this.client.from("warranties").delete().eq("id", id);
+      } catch (err) {
+        console.warn("Delete warranty Supabase error:", err);
       }
-      return { error };
-    } else {
-      let list = this.getDemoRecords();
-      list = list.filter((w) => w.id !== id);
-      this.saveDemoRecords(list);
-      return { error: null };
     }
+    let list = this.getDemoRecords();
+    list = list.filter((w) => w.id !== id);
+    this.saveDemoRecords(list);
+    return { error: null };
   }
 
   async bulkImport(records) {
@@ -1123,6 +1230,409 @@ class WarrantyService {
       this.saveDemoDiaryNotes(list);
       return { error: null };
     }
+  }
+
+  // =========================================================================
+  // LICENSE RENEWALS & RECURRING PAYMENTS (IDEA 1)
+  // =========================================================================
+
+  calculateExpiry(startDate, duration, type) {
+    const expiry = new Date(startDate);
+    const dur = parseInt(duration, 10) || 0;
+    if (type === "day") {
+      expiry.setDate(expiry.getDate() + dur);
+    } else {
+      expiry.setMonth(expiry.getMonth() + dur);
+    }
+    return expiry;
+  }
+
+  async getAllRenewals() {
+    if (this.isLive) {
+      const { data, error } = await this.client
+        .from("license_renewals")
+        .select("*")
+        .order("renewal_date", { ascending: false });
+
+      if (error) {
+        return { data: this.getDemoRenewals(), error: null };
+      }
+      return { data: data || [], error: null };
+    } else {
+      return { data: this.getDemoRenewals(), error: null };
+    }
+  }
+
+  async getRenewalsByWarranty(warrantyId) {
+    const isUuid = isValidUuid(warrantyId);
+    if (this.isLive && isUuid) {
+      const { data, error } = await this.client
+        .from("license_renewals")
+        .select("*")
+        .eq("warranty_id", warrantyId)
+        .order("renewal_date", { ascending: false });
+
+      if (error) {
+        const localList = this.getDemoRenewals().filter((r) => r.warranty_id === warrantyId);
+        return { data: localList, error: null };
+      }
+      return { data: data || [], error: null };
+    } else {
+      const localList = this.getDemoRenewals().filter((r) => r.warranty_id === warrantyId);
+      return { data: localList, error: null };
+    }
+  }
+
+  async renewLicense(warrantyId, renewalData) {
+    // 1. Fetch current warranty
+    const all = await this.getAllWarranties();
+    const existing = (all.data || []).find((w) => w.id === warrantyId);
+    if (!existing) {
+      return { data: null, error: { message: "License record not found." } };
+    }
+
+    const renewalAmount = parseFloat(renewalData.amount) || 0;
+    const renewalCost = parseFloat(renewalData.cost_price) || 0;
+    const monthsAdded = parseInt(renewalData.months_added, 10) || 12;
+    const durationType = renewalData.duration_type || "month";
+
+    // 2. Compute old and new expiry
+    const pDate = new Date(existing.purchase_date);
+    const oldExpiry = this.calculateExpiry(pDate, existing.warranty_months, existing.warranty_type || "month");
+    oldExpiry.setHours(0, 0, 0, 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Determine service start date (from form input or fallback)
+    let serviceStartDateStr = renewalData.service_start_date;
+    if (!serviceStartDateStr) {
+      if (renewalData.start_mode === "today" || oldExpiry < today) {
+        serviceStartDateStr = today.toISOString().split("T")[0];
+      } else {
+        serviceStartDateStr = oldExpiry.toISOString().split("T")[0];
+      }
+    }
+    const serviceStartDate = new Date(serviceStartDateStr);
+    serviceStartDate.setHours(0, 0, 0, 0);
+
+    // Calculate new expiry strictly based on service_start_date + duration
+    const newExpiryDate = this.calculateExpiry(serviceStartDate, monthsAdded, durationType);
+    newExpiryDate.setHours(0, 0, 0, 0);
+
+    let newPurchaseDate;
+    let newMonths;
+
+    // Check if service_start_date matches existing expiry and type matches
+    const oldExpiryStr = oldExpiry.toISOString().split("T")[0];
+    if (serviceStartDateStr === oldExpiryStr && (existing.warranty_type || "month") === durationType) {
+      // Continuing without gap: keep original purchase_date and increment total duration
+      newPurchaseDate = existing.purchase_date;
+      newMonths = (parseInt(existing.warranty_months, 10) || 0) + monthsAdded;
+    } else {
+      // Fresh start date (gap renewal, expired, or custom chosen start date)
+      newPurchaseDate = serviceStartDateStr;
+      newMonths = monthsAdded;
+    }
+
+    const renewalRecord = {
+      warranty_id: existing.id,
+      serial_number: existing.serial_number,
+      customer_name: existing.customer_name || "Customer",
+      customer_email: existing.customer_email || "",
+      customer_mobile: existing.customer_mobile || "",
+      product_name: existing.product_name,
+      renewal_date: renewalData.renewal_date || new Date().toISOString().split("T")[0],
+      service_start_date: serviceStartDateStr,
+      months_added: monthsAdded,
+      duration_type: durationType,
+      old_expiry: oldExpiryStr,
+      new_expiry: newExpiryDate.toISOString().split("T")[0],
+      amount: renewalAmount,
+      cost_price: renewalCost,
+      payment_ref: renewalData.payment_ref || "",
+      notes: renewalData.notes || "",
+      created_at: new Date().toISOString()
+    };
+
+    // 3. Prepare cumulative warranty updates
+    const currentAmt = (existing.amount !== undefined && existing.amount !== null) ? parseFloat(existing.amount) : 0;
+    const currentCost = (existing.cost_price !== undefined && existing.cost_price !== null) ? parseFloat(existing.cost_price) : 0;
+    const updatedAmount = currentAmt + renewalAmount;
+    const updatedCost = currentCost + renewalCost;
+
+    const warrantyUpdates = {
+      purchase_date: newPurchaseDate,
+      warranty_months: newMonths,
+      validity_months: newMonths,
+      warranty_type: durationType,
+      validity_type: durationType,
+      amount: updatedAmount,
+      cost_price: updatedCost,
+      status: "active",
+      updated_at: new Date().toISOString()
+    };
+
+    // 4. Save renewal in Supabase / Local
+    let savedRenewal = null;
+    const isWarrantyUuid = isValidUuid(existing.id);
+    if (this.isLive && isWarrantyUuid) {
+      try {
+        const { data: renData, error: renErr } = await this.client
+          .from("license_renewals")
+          .insert([renewalRecord])
+          .select();
+
+        if (renErr) {
+          console.warn("license_renewals table insert error, falling back to local storage:", renErr.message || renErr);
+          renewalRecord.id = "ren-" + Date.now();
+          savedRenewal = renewalRecord;
+        } else {
+          savedRenewal = renData && renData[0] ? renData[0] : renewalRecord;
+        }
+      } catch (e) {
+        console.warn("license_renewals insert exception:", e);
+        renewalRecord.id = "ren-" + Date.now();
+        savedRenewal = renewalRecord;
+      }
+    } else {
+      renewalRecord.id = "ren-" + Date.now();
+      savedRenewal = renewalRecord;
+    }
+
+    // Always maintain local renewals cache
+    const renList = this.getDemoRenewals();
+    renList.unshift(savedRenewal);
+    this.saveDemoRenewals(renList);
+
+    // 5. Update warranties table
+    const updateRes = await this.updateWarranty(existing.id, warrantyUpdates);
+
+    return {
+      data: {
+        renewal: savedRenewal,
+        warranty: updateRes.data || { ...existing, ...warrantyUpdates }
+      },
+      error: null
+    };
+  }
+
+  async deleteRenewal(renewalId, warrantyId) {
+    // 1. Fetch warranty
+    const allW = await this.getAllWarranties();
+    const existing = (allW.data || []).find((w) => w.id === warrantyId);
+    if (!existing) {
+      return { error: { message: "License record not found." } };
+    }
+
+    // 2. Fetch renewals for this warranty
+    const renRes = await this.getRenewalsByWarranty(warrantyId);
+    const renList = renRes.data || [];
+    const targetRen = renList.find((r) => r.id === renewalId);
+    if (!targetRen) {
+      return { error: { message: "Renewal transaction not found." } };
+    }
+
+    const remainingRen = renList.filter((r) => r.id !== renewalId);
+
+    // 3. Revert financial figures
+    const renAmt = parseFloat(targetRen.amount) || 0;
+    const renCost = parseFloat(targetRen.cost_price) || 0;
+    const currentAmt = (existing.amount !== undefined && existing.amount !== null) ? parseFloat(existing.amount) : 0;
+    const currentCost = (existing.cost_price !== undefined && existing.cost_price !== null) ? parseFloat(existing.cost_price) : 0;
+    const newAmount = Math.max(0, currentAmt - renAmt);
+    const newCost = Math.max(0, currentCost - renCost);
+
+    // 4. Revert duration & expiry
+    const monthsAdded = parseInt(targetRen.months_added, 10) || 12;
+    let newMonths = Math.max(1, (parseInt(existing.warranty_months, 10) || 12) - monthsAdded);
+    let newPurchaseDate = existing.purchase_date;
+
+    if (remainingRen.length > 0) {
+      // Revert to latest remaining renewal
+      const latestRen = remainingRen[0];
+      if (latestRen.service_start_date && existing.purchase_date === targetRen.service_start_date) {
+        newPurchaseDate = latestRen.service_start_date;
+        newMonths = parseInt(latestRen.months_added, 10) || newMonths;
+      }
+    } else {
+      // Revert to state before this renewal using targetRen.old_expiry
+      if (targetRen.old_expiry && existing.purchase_date === targetRen.service_start_date) {
+        const oldExpDate = new Date(targetRen.old_expiry);
+        oldExpDate.setMonth(oldExpDate.getMonth() - newMonths);
+        newPurchaseDate = oldExpDate.toISOString().split("T")[0];
+      }
+    }
+
+    const targetExpiry = this.calculateExpiry(new Date(newPurchaseDate), newMonths, existing.warranty_type || "month");
+    targetExpiry.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const newStatus = targetExpiry < today ? "expired" : "active";
+
+    const warrantyUpdates = {
+      purchase_date: newPurchaseDate,
+      warranty_months: newMonths,
+      validity_months: newMonths,
+      amount: newAmount,
+      cost_price: newCost,
+      status: existing.status === "void" ? "void" : newStatus,
+      updated_at: new Date().toISOString()
+    };
+
+    // 5. Delete renewal record from Supabase / Demo Storage
+    const isRenUuid = isValidUuid(renewalId);
+    if (this.isLive && isRenUuid) {
+      try {
+        const { error: delErr } = await this.client
+          .from("license_renewals")
+          .delete()
+          .eq("id", renewalId);
+
+        if (delErr) {
+          console.warn("license_renewals delete error, removing from local cache:", delErr);
+        }
+      } catch (e) {
+        console.warn("license_renewals delete exception:", e);
+      }
+    }
+
+    // Always maintain local demo cache
+    let allDemoRenewals = this.getDemoRenewals().filter((r) => r.id !== renewalId);
+    this.saveDemoRenewals(allDemoRenewals);
+
+    // 6. Update warranty record
+    const updateRes = await this.updateWarranty(existing.id, warrantyUpdates);
+
+    return {
+      data: {
+        deletedId: renewalId,
+        warranty: updateRes.data || { ...existing, ...warrantyUpdates }
+      },
+      error: null
+    };
+  }
+
+  async updateRenewal(renewalId, warrantyId, updates) {
+    // 1. Fetch warranty
+    const allW = await this.getAllWarranties();
+    const existing = (allW.data || []).find((w) => w.id === warrantyId);
+    if (!existing) {
+      return { error: { message: "License record not found." } };
+    }
+
+    // 2. Fetch renewal record
+    const renRes = await this.getRenewalsByWarranty(warrantyId);
+    const renList = renRes.data || [];
+    const targetRen = renList.find((r) => r.id === renewalId);
+    if (!targetRen) {
+      return { error: { message: "Renewal transaction not found." } };
+    }
+
+    // 3. Compute financial difference
+    const oldRenAmt = parseFloat(targetRen.amount) || 0;
+    const newRenAmt = parseFloat(updates.amount);
+    const validNewAmt = isNaN(newRenAmt) ? oldRenAmt : newRenAmt;
+    const diffAmt = validNewAmt - oldRenAmt;
+
+    const oldRenCost = parseFloat(targetRen.cost_price) || 0;
+    const newRenCost = parseFloat(updates.cost_price);
+    const validNewCost = isNaN(newRenCost) ? oldRenCost : newRenCost;
+    const diffCost = validNewCost - oldRenCost;
+
+    const currentWarrantyAmt = (existing.amount !== undefined && existing.amount !== null) ? parseFloat(existing.amount) : 0;
+    const currentWarrantyCost = (existing.cost_price !== undefined && existing.cost_price !== null) ? parseFloat(existing.cost_price) : 0;
+
+    const updatedWarrantyAmt = Math.max(0, currentWarrantyAmt + diffAmt);
+    const updatedWarrantyCost = Math.max(0, currentWarrantyCost + diffCost);
+
+    // 4. Compute updated dates and duration
+    const newServiceStartDateStr = updates.service_start_date || targetRen.service_start_date || targetRen.old_expiry;
+    const newMonthsAdded = parseInt(updates.months_added, 10) || parseInt(targetRen.months_added, 10) || 12;
+    const newDurationType = updates.duration_type || targetRen.duration_type || "month";
+
+    const newExpiryDate = this.calculateExpiry(new Date(newServiceStartDateStr), newMonthsAdded, newDurationType);
+    newExpiryDate.setHours(0, 0, 0, 0);
+    const newExpiryStr = newExpiryDate.toISOString().split("T")[0];
+
+    // Check if targetRen is the latest renewal
+    const isLatest = renList.length > 0 && renList[0].id === renewalId;
+    let newPurchaseDate = existing.purchase_date;
+    let newWarrantyMonths = parseInt(existing.warranty_months, 10) || 12;
+
+    if (isLatest) {
+      if (existing.purchase_date === targetRen.service_start_date) {
+        newPurchaseDate = newServiceStartDateStr;
+        newWarrantyMonths = newMonthsAdded;
+      } else {
+        const diffMonths = newMonthsAdded - (parseInt(targetRen.months_added, 10) || 0);
+        newWarrantyMonths = Math.max(1, (parseInt(existing.warranty_months, 10) || 0) + diffMonths);
+      }
+    }
+
+    const targetExpiry = this.calculateExpiry(new Date(newPurchaseDate), newWarrantyMonths, existing.warranty_type || "month");
+    targetExpiry.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const newStatus = targetExpiry < today ? "expired" : "active";
+
+    const renewalUpdates = {
+      renewal_date: updates.renewal_date || targetRen.renewal_date,
+      service_start_date: newServiceStartDateStr,
+      months_added: newMonthsAdded,
+      duration_type: newDurationType,
+      new_expiry: newExpiryStr,
+      amount: validNewAmt,
+      cost_price: validNewCost,
+      payment_ref: updates.payment_ref !== undefined ? updates.payment_ref : (targetRen.payment_ref || ""),
+      notes: updates.notes !== undefined ? updates.notes : (targetRen.notes || ""),
+      updated_at: new Date().toISOString()
+    };
+
+    // 5. Update renewal in Supabase / Demo Storage
+    const isRenUuid = isValidUuid(renewalId);
+    if (this.isLive && isRenUuid) {
+      try {
+        const { error: renErr } = await this.client
+          .from("license_renewals")
+          .update(renewalUpdates)
+          .eq("id", renewalId);
+
+        if (renErr) {
+          console.warn("license_renewals update error, falling back to local storage:", renErr);
+        }
+      } catch (e) {
+        console.warn("license_renewals update exception:", e);
+      }
+    }
+
+    // Always maintain local demo cache
+    let allDemoRenewals = this.getDemoRenewals();
+    const rIdx = allDemoRenewals.findIndex((r) => r.id === renewalId);
+    if (rIdx !== -1) {
+      allDemoRenewals[rIdx] = { ...allDemoRenewals[rIdx], ...renewalUpdates };
+      this.saveDemoRenewals(allDemoRenewals);
+    }
+
+    // 6. Update warranty record
+    const warrantyUpdates = {
+      purchase_date: newPurchaseDate,
+      warranty_months: newWarrantyMonths,
+      validity_months: newWarrantyMonths,
+      amount: updatedWarrantyAmt,
+      cost_price: updatedWarrantyCost,
+      status: existing.status === "void" ? "void" : newStatus,
+      updated_at: new Date().toISOString()
+    };
+    const updateRes = await this.updateWarranty(existing.id, warrantyUpdates);
+
+    return {
+      data: {
+        renewal: { ...targetRen, ...renewalUpdates },
+        warranty: updateRes.data || { ...existing, ...warrantyUpdates }
+      },
+      error: null
+    };
   }
 }
 

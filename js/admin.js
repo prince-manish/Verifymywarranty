@@ -27,6 +27,11 @@ let importModalInstance = null;
 let leadMessageModalInstance = null;
 let diaryNoteModalInstance = null;
 let statDetailModalInstance = null;
+let renewModalInstance = null;
+let postRenewModalInstance = null;
+let renewalsHistoryModalInstance = null;
+let editRenewalModalInstance = null;
+let allRenewals = [];
 let currentStatModalType = "all";
 let currentModalLeadId = null;
 
@@ -51,6 +56,22 @@ document.addEventListener("DOMContentLoaded", function () {
   const statModalEl = document.getElementById("statDetailModal");
   if (statModalEl) {
     statDetailModalInstance = new bootstrap.Modal(statModalEl);
+  }
+  const renewModalEl = document.getElementById("renewLicenseModal");
+  if (renewModalEl) {
+    renewModalInstance = new bootstrap.Modal(renewModalEl);
+  }
+  const postRenewModalEl = document.getElementById("postRenewModal");
+  if (postRenewModalEl) {
+    postRenewModalInstance = new bootstrap.Modal(postRenewModalEl);
+  }
+  const renewalsHistoryModalEl = document.getElementById("renewalsHistoryModal");
+  if (renewalsHistoryModalEl) {
+    renewalsHistoryModalInstance = new bootstrap.Modal(renewalsHistoryModalEl);
+  }
+  const editRenewalModalEl = document.getElementById("editRenewalModal");
+  if (editRenewalModalEl) {
+    editRenewalModalInstance = new bootstrap.Modal(editRenewalModalEl);
   }
 
   // 3. Update Environment Indicator
@@ -453,6 +474,17 @@ async function loadWarranties() {
   try {
     const { data } = await window.warrantyService.getAllWarranties();
     allWarranties = data || [];
+
+    if (typeof window.warrantyService.getAllRenewals === "function") {
+      try {
+        const renRes = await window.warrantyService.getAllRenewals();
+        allRenewals = renRes.data || [];
+      } catch (e) {
+        console.warn("Could not load renewals:", e);
+        allRenewals = [];
+      }
+    }
+
     updateStatistics(allWarranties);
     updateNotificationsBadge(allWarranties);
     filterAndRenderTable();
@@ -1151,6 +1183,11 @@ function filterAndRenderTable() {
             ${formatDate(expiry)}
           </div>
           <small class="text-muted">${r.warranty_months} ${r.warranty_type || "months"}</small>
+          <div class="mt-1">
+            <button type="button" class="btn btn-link p-0 small text-decoration-none text-muted" onclick="openRenewalsHistoryModal('${r.id}')" title="View Renewal History">
+              <i class="bi bi-clock-history me-1"></i>History
+            </button>
+          </div>
         </td>
         <td>
           <span class="fw-bold text-dark">
@@ -1172,16 +1209,19 @@ function filterAndRenderTable() {
           <span class="${badgeClass}">${statusLabel}</span>
         </td>
         <td>
-          <div class="d-flex gap-1">
+          <div class="d-flex align-items-center gap-1">
+            <button class="btn btn-outline-success btn-sm rounded-pill px-2 py-1 fw-semibold d-inline-flex align-items-center gap-1" onclick="openRenewModal('${r.id}')" title="Renew License (Add Validity & Funds)">
+              <i class="bi bi-arrow-repeat"></i> Renew
+            </button>
             ${r.customer_mobile ? `
-            <a href="${waLink}" target="_blank" class="btn btn-whatsapp btn-sm rounded-pill px-2 py-1" title="Send WhatsApp Renewal">
+            <a href="${waLink}" target="_blank" class="btn btn-whatsapp btn-sm rounded-pill px-2 py-1" title="Send WhatsApp Renewal Reminder">
               <i class="bi bi-whatsapp"></i>
             </a>` : `
             <button class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-1 opacity-50" title="No Mobile Number" disabled>
               <i class="bi bi-whatsapp"></i>
             </button>`}
             ${r.telegram_id || r.customer_mobile ? `
-            <a href="${tgLink}" target="_blank" class="btn btn-telegram btn-sm rounded-pill px-2 py-1" title="Send Telegram Renewal">
+            <a href="${tgLink}" target="_blank" class="btn btn-telegram btn-sm rounded-pill px-2 py-1" title="Send Telegram Renewal Reminder">
               <i class="bi bi-telegram"></i>
             </a>` : `
             <button class="btn btn-outline-secondary btn-sm rounded-pill px-2 py-1 opacity-50" title="No Telegram or Mobile" disabled>
@@ -1191,6 +1231,12 @@ function filterAndRenderTable() {
         </td>
         <td class="text-end">
           <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-success" title="Renew License" onclick="openRenewModal('${r.id}')">
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+            <button class="btn btn-outline-info" title="Renewal History" onclick="openRenewalsHistoryModal('${r.id}')">
+              <i class="bi bi-clock-history"></i>
+            </button>
             <button class="btn btn-outline-secondary" title="View Certificate" onclick="openAdminCertificateModal('${r.id}')">
               <i class="bi bi-award"></i>
             </button>
@@ -1425,12 +1471,12 @@ async function handleWarrantyFormSubmit(e) {
     let savedRecord = null;
     if (id) {
       const res = await window.warrantyService.updateWarranty(id, recordData);
-      if (res.error) throw res.error;
-      savedRecord = res.data || recordData;
+      if (res && res.error) throw res.error;
+      savedRecord = (res && res.data) ? res.data : { id, ...recordData };
     } else {
       const res = await window.warrantyService.createWarranty(recordData);
-      if (res.error) throw res.error;
-      savedRecord = res.data || recordData;
+      if (res && res.error) throw res.error;
+      savedRecord = (res && res.data) ? res.data : recordData;
     }
 
     warrantyModalInstance.hide();
@@ -1456,8 +1502,9 @@ async function handleWarrantyFormSubmit(e) {
  * thanks for choose Foxzen
  */
 function showPostSaveOutput(record) {
-  const pDate = new Date(record.purchase_date);
-  const expiry = calculateExpiry(pDate, record.warranty_months, record.warranty_type || "month");
+  if (!record) return;
+  const pDate = record.purchase_date ? new Date(record.purchase_date) : new Date();
+  const expiry = calculateExpiry(pDate, record.warranty_months || 12, record.warranty_type || "month");
   const actFormatted = formatDate(pDate);
   const expiryFormatted = formatDate(expiry);
   const notesText = record.notes || "Standard License";
@@ -1547,6 +1594,578 @@ window.copyPostSaveOutput = function () {
   }).catch((err) => {
     alert("Could not copy automatically. Please select the text and press Ctrl+C.");
   });
+};
+
+// ===========================================================================
+// SUBSCRIPTION RENEWAL SYSTEM (IDEA 1)
+// ===========================================================================
+
+window.currentRenewProductDefault = { duration: 12, type: "month" };
+
+window.openRenewModal = function (id) {
+  const item = allWarranties.find((w) => w.id === id);
+  if (!item) return;
+
+  document.getElementById("renewWarrantyId").value = item.id;
+  document.getElementById("renewModalCustomerName").textContent = item.customer_name || "Valued Customer";
+  document.getElementById("renewModalProduct").innerHTML = `<i class="bi bi-box-seam me-1"></i>${escapeHtml(item.product_name)}`;
+  document.getElementById("renewModalSerial").innerHTML = `<i class="bi bi-upc me-1"></i>${escapeHtml(item.serial_number)}`;
+  
+  const contactText = item.customer_mobile || item.customer_email || (item.telegram_id ? `@${item.telegram_id}` : "No contact provided");
+  document.getElementById("renewModalContact").innerHTML = `<i class="bi bi-person-lines-fill me-1"></i>${escapeHtml(contactText)}`;
+
+  const pDate = new Date(item.purchase_date);
+  const currentExpiry = calculateExpiry(pDate, item.warranty_months, item.warranty_type || "month");
+  currentExpiry.setHours(0, 0, 0, 0);
+  const currentExpiryStr = currentExpiry.toISOString().split("T")[0];
+  document.getElementById("renewOldExpiry").value = currentExpiryStr;
+  document.getElementById("renewModalCurrentExpiry").textContent = formatDate(currentExpiry);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split("T")[0];
+
+  // 1. Renewal / Payment Date: defaults to today, editable
+  document.getElementById("renewDate").value = todayStr;
+
+  // 2. Service Start Date: defaults to current expiry if active, or today if expired
+  const isExpired = today > currentExpiry;
+  const initialStartDate = isExpired ? todayStr : currentExpiryStr;
+  const serviceStartInput = document.getElementById("renewServiceStartDate");
+  if (serviceStartInput) serviceStartInput.value = initialStartDate;
+  
+  const serviceStartHint = document.getElementById("renewServiceStartHint");
+  if (serviceStartHint) {
+    serviceStartHint.textContent = isExpired 
+      ? "License is currently expired. Renewal starts from today."
+      : `Extending directly from current expiry (${formatDate(currentExpiry)}).`;
+  }
+
+  // 3. Product Default Duration setup
+  let defDur = 12;
+  let defType = item.warranty_type || "month";
+  if (allProducts && allProducts.length > 0) {
+    const prodMatch = allProducts.find((p) => p.name === item.product_name);
+    if (prodMatch) {
+      defDur = parseInt(prodMatch.default_warranty_months || prodMatch.default_validity_months, 10) || 12;
+      defType = prodMatch.duration_type || "month";
+    }
+  }
+  if (!defDur) {
+    defDur = parseInt(item.warranty_months, 10) || 12;
+  }
+
+  window.currentRenewProductDefault = {
+    duration: defDur,
+    type: defType
+  };
+
+  const defLabel = document.getElementById("renewDurModeDefaultLabel");
+  if (defLabel) {
+    defLabel.textContent = `Default (${defDur}${defType === "day" ? "D" : "M"})`;
+  }
+
+  const defaultRadio = document.getElementById("renewDurModeDefault");
+  if (defaultRadio) defaultRadio.checked = true;
+
+  window.toggleRenewDurationMode();
+
+  // 4. Renewal Price
+  let defaultPrice = "";
+  if (allProducts && allProducts.length > 0) {
+    const prodMatch = allProducts.find((p) => p.name === item.product_name);
+    if (prodMatch) {
+      const prodAmt = prodMatch.default_amount !== undefined && prodMatch.default_amount !== null ? parseFloat(prodMatch.default_amount) : (parseFloat(prodMatch.amount) || 0);
+      if (prodAmt > 0) defaultPrice = prodAmt;
+    }
+  }
+  if (!defaultPrice && item.amount !== undefined && item.amount !== null && parseFloat(item.amount) > 0) {
+    defaultPrice = parseFloat(item.amount);
+  }
+  document.getElementById("renewAmount").value = defaultPrice !== "" ? defaultPrice : "";
+  document.getElementById("renewCostPrice").value = (item.cost_price !== undefined && item.cost_price !== null && parseFloat(item.cost_price) > 0) ? item.cost_price : "0.00";
+
+  document.getElementById("renewPaymentRef").value = "";
+  document.getElementById("renewNotes").value = "";
+
+  window.updateRenewPreview();
+  window.updateRenewProfitPreview();
+
+  if (renewModalInstance) {
+    renewModalInstance.show();
+  }
+};
+
+window.toggleRenewDurationMode = function () {
+  const isDefault = document.getElementById("renewDurModeDefault")?.checked;
+  const durInput = document.getElementById("renewMonthsAdded");
+  const typeSelect = document.getElementById("renewDurationType");
+  const hintEl = document.getElementById("renewDurationHint");
+
+  const def = window.currentRenewProductDefault || { duration: 12, type: "month" };
+
+  if (isDefault) {
+    if (durInput) {
+      durInput.value = def.duration;
+      durInput.readOnly = true;
+      durInput.classList.remove("bg-white");
+    }
+    if (typeSelect) {
+      typeSelect.value = def.type;
+      typeSelect.disabled = true;
+    }
+    if (hintEl) {
+      hintEl.textContent = `Default duration (${def.duration} ${def.type}s) configured for this product`;
+    }
+  } else {
+    if (durInput) {
+      durInput.readOnly = false;
+      durInput.classList.add("bg-white");
+      durInput.focus();
+      durInput.select();
+    }
+    if (typeSelect) {
+      typeSelect.disabled = false;
+    }
+    if (hintEl) {
+      hintEl.textContent = "Custom duration: enter custom number of months or days";
+    }
+  }
+
+  window.updateRenewPreview();
+};
+
+window.setServiceStartDateToToday = function () {
+  const todayStr = new Date().toISOString().split("T")[0];
+  const input = document.getElementById("renewServiceStartDate");
+  if (input) {
+    input.value = todayStr;
+    const hintEl = document.getElementById("renewServiceStartHint");
+    if (hintEl) hintEl.textContent = "Service validity set to start from today.";
+    window.updateRenewPreview();
+  }
+};
+
+window.updateRenewPreview = function () {
+  const serviceStartDateStr = document.getElementById("renewServiceStartDate")?.value;
+  let baseDate = serviceStartDateStr ? new Date(serviceStartDateStr) : new Date();
+  baseDate.setHours(0, 0, 0, 0);
+
+  const durInput = document.getElementById("renewMonthsAdded");
+  const dur = durInput ? (parseInt(durInput.value, 10) || 1) : 1;
+  const typeSelect = document.getElementById("renewDurationType");
+  const unit = typeSelect ? (typeSelect.value || "month") : "month";
+
+  const newDate = calculateExpiry(baseDate, dur, unit);
+  newDate.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((newDate - today) / (1000 * 60 * 60 * 24));
+
+  const previewEl = document.getElementById("renewPreviewNewDate");
+  const diffEl = document.getElementById("renewPreviewDaysDiff");
+  if (previewEl) previewEl.textContent = formatDate(newDate);
+  if (diffEl) {
+    if (diffDays > 0) {
+      diffEl.textContent = `Active for ${diffDays} days from today (till ${formatDate(newDate)})`;
+    } else if (diffDays === 0) {
+      diffEl.textContent = `Valid till end of today (+${dur} ${unit}s)`;
+    } else {
+      diffEl.textContent = `Expired ${Math.abs(diffDays)} days ago`;
+    }
+  }
+};
+
+window.updateRenewProfitPreview = function () {
+  const sell = parseFloat(document.getElementById("renewAmount")?.value) || 0;
+  const cost = parseFloat(document.getElementById("renewCostPrice")?.value) || 0;
+  const margin = sell - cost;
+  const sign = margin >= 0 ? "+" : "";
+
+  const marginValEl = document.getElementById("renewMarginValue");
+  const marginBox = document.getElementById("renewMarginPreview");
+  if (marginValEl) {
+    marginValEl.textContent = `${sign}₹${margin.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  if (marginBox) {
+    marginBox.className = margin >= 0
+      ? "form-control bg-light fw-bold text-success d-flex align-items-center justify-content-between"
+      : "form-control bg-light fw-bold text-danger d-flex align-items-center justify-content-between";
+  }
+};
+
+window.handleRenewFormSubmit = async function (e) {
+  e.preventDefault();
+  const warrantyId = document.getElementById("renewWarrantyId").value;
+  const btn = document.getElementById("confirmRenewBtn");
+
+  const rawAmount = document.getElementById("renewAmount").value.trim();
+  const amountVal = parseFloat(rawAmount);
+  if (isNaN(amountVal) || amountVal < 0) {
+    alert("Please enter a valid renewal amount (>= 0).");
+    document.getElementById("renewAmount").focus();
+    return;
+  }
+
+  const rawCost = document.getElementById("renewCostPrice")?.value.trim() || "";
+  const costVal = rawCost !== "" ? parseFloat(rawCost) : 0;
+
+  const payload = {
+    renewal_date: document.getElementById("renewDate")?.value || new Date().toISOString().split("T")[0],
+    service_start_date: document.getElementById("renewServiceStartDate")?.value || new Date().toISOString().split("T")[0],
+    months_added: parseInt(document.getElementById("renewMonthsAdded").value, 10) || 12,
+    duration_type: document.getElementById("renewDurationType").value || "month",
+    amount: amountVal,
+    cost_price: isNaN(costVal) ? 0 : costVal,
+    payment_ref: document.getElementById("renewPaymentRef")?.value.trim() || "",
+    notes: document.getElementById("renewNotes")?.value.trim() || ""
+  };
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Recording Renewal...`;
+
+  try {
+    const res = await window.warrantyService.renewLicense(warrantyId, payload);
+    if (res.error) throw res.error;
+
+    if (renewModalInstance) renewModalInstance.hide();
+    await loadWarranties();
+
+    if (res.data && res.data.renewal) {
+      showPostRenewOutput(res.data.renewal, res.data.warranty);
+    }
+  } catch (err) {
+    console.error("Renewal error:", err);
+    alert("Error processing renewal: " + (err.message || "Failed to update record."));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="bi bi-arrow-repeat me-1"></i> Confirm & Record Renewal`;
+  }
+};
+
+window.showPostRenewOutput = function (renewal, warranty) {
+  const custName = (renewal.customer_name && renewal.customer_name.trim() && renewal.customer_name !== "Customer")
+    ? renewal.customer_name.trim()
+    : "Valued Customer";
+
+  const renDate = formatDate(new Date(renewal.renewal_date));
+  const newExpFormatted = formatDate(new Date(renewal.new_expiry));
+  const amountVal = parseFloat(renewal.amount) || 0;
+
+  const custEmail = String(renewal.customer_email || "").trim();
+  const emailFormatted = custEmail ? `📧 *Customer Email:* ${custEmail}\n` : "";
+
+  const refFormatted = renewal.payment_ref ? `💳 *Payment Ref:* ${renewal.payment_ref}\n` : "";
+  const notesFormatted = renewal.notes ? `📝 *Notes:* ${renewal.notes}\n` : "";
+
+  const outputFormattedText = 
+`🎉 *SUBSCRIPTION RENEWED - FOXZEN*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 *Customer Name:* ${custName}
+${emailFormatted}💻 *Product Name:* ${renewal.product_name}
+🔑 *Serial Number:* ${renewal.serial_number}
+📅 *Renewed On:* ${renDate}
+⏳ *New Valid Till:* ${newExpFormatted} (+${renewal.months_added} ${renewal.duration_type || "month"}s)
+💰 *Renewal Amount:* ₹${amountVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+${refFormatted}${notesFormatted}━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 *Check Updated Status & Official Certificate:*
+👉 https://www.verifymywarranty.com/
+
+💬 *Need Help or Further Services?*
+Feel free to reply to this message anytime!
+
+✨ *Thank You for Continuing with FOXZEN!*`;
+
+  document.getElementById("postRenewOutputText").textContent = outputFormattedText;
+
+  const waBtn = document.getElementById("postRenewWhatsappBtn");
+  const tgBtn = document.getElementById("postRenewTelegramBtn");
+
+  if (renewal.customer_mobile && String(renewal.customer_mobile).trim()) {
+    let phone = String(renewal.customer_mobile || "").trim().replace(/[^0-9]/g, "");
+    if (phone.length === 10) phone = "91" + phone;
+    waBtn.href = `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(outputFormattedText)}`;
+    waBtn.classList.remove("disabled", "opacity-50");
+  } else {
+    waBtn.href = "javascript:void(0)";
+    waBtn.classList.add("disabled", "opacity-50");
+  }
+
+  const tg = String(warranty?.telegram_id || "").replace(/^@/, "").trim();
+  if (tg) {
+    tgBtn.href = `https://t.me/${tg}?text=${encodeURIComponent(outputFormattedText)}`;
+    tgBtn.classList.remove("disabled", "opacity-50");
+  } else if (renewal.customer_mobile && String(renewal.customer_mobile).trim()) {
+    let phone = String(renewal.customer_mobile || "").trim().replace(/[^0-9]/g, "");
+    if (phone.length === 10) phone = "+91" + phone;
+    tgBtn.href = `https://t.me/+${phone.replace(/[^0-9]/g, "")}`;
+    tgBtn.classList.remove("disabled", "opacity-50");
+  } else {
+    tgBtn.href = "javascript:void(0)";
+    tgBtn.classList.add("disabled", "opacity-50");
+  }
+
+  // Reset copy button
+  document.getElementById("copyRenewBtnLabel").textContent = "Copy Message";
+  document.getElementById("copyRenewOutputBtn").classList.remove("btn-primary");
+  document.getElementById("copyRenewOutputBtn").classList.add("btn-success");
+
+  if (postRenewModalInstance) {
+    postRenewModalInstance.show();
+  }
+};
+
+window.copyPostRenewOutput = function () {
+  const text = document.getElementById("postRenewOutputText").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const label = document.getElementById("copyRenewBtnLabel");
+    label.innerHTML = '<i class="bi bi-check2"></i> Copied to Clipboard!';
+    setTimeout(() => {
+      label.textContent = "Copy Message";
+    }, 2500);
+  }).catch(() => {
+    alert("Could not copy automatically. Please select text and press Ctrl+C.");
+  });
+};
+
+window.openRenewalsHistoryModal = async function (warrantyId) {
+  const item = allWarranties.find((w) => w.id === warrantyId);
+  if (!item) return;
+
+  document.getElementById("historyCustomerName").textContent = item.customer_name || "Valued Customer";
+  document.getElementById("historyProductSerial").innerHTML = `${escapeHtml(item.product_name)} • <span class="font-monospace text-primary">${escapeHtml(item.serial_number)}</span>`;
+
+  const tbody = document.getElementById("renewalsHistoryTableBody");
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary me-2"></div>Fetching renewals history...</td></tr>`;
+
+  if (renewalsHistoryModalInstance) {
+    renewalsHistoryModalInstance.show();
+  }
+
+  try {
+    const res = await window.warrantyService.getRenewalsByWarranty(warrantyId);
+    const list = res.data || [];
+
+    let totalAmount = (item.amount !== undefined && item.amount !== null) ? parseFloat(item.amount) : 0;
+    document.getElementById("historyTotalCollected").textContent = `Total Paid: ₹${totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    if (list.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" class="text-center py-4 text-muted">
+            <i class="bi bi-info-circle fs-4 d-block mb-1 text-secondary"></i>
+            No separate renewal transactions recorded yet for this license.<br>
+            <small class="text-muted">Initial Activation Price: ₹${(parseFloat(item.amount) || 0).toFixed(2)}</small>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    let rowsHtml = "";
+    list.forEach((ren) => {
+      const amt = parseFloat(ren.amount) || 0;
+      const cost = parseFloat(ren.cost_price) || 0;
+      const margin = amt - cost;
+      const sign = margin >= 0 ? "+" : "";
+
+      rowsHtml += `
+        <tr>
+          <td class="fw-semibold text-dark">${formatDate(new Date(ren.renewal_date))}</td>
+          <td>
+            <span class="badge bg-primary-subtle text-primary border">+${ren.months_added} ${ren.duration_type || "month"}s</span>
+            ${ren.service_start_date ? `<small class="text-muted d-block mt-1">From: ${formatDate(new Date(ren.service_start_date))}</small>` : ""}
+          </td>
+          <td class="text-success fw-semibold">${formatDate(new Date(ren.new_expiry))}</td>
+          <td class="fw-bold text-dark">₹${amt.toFixed(2)}</td>
+          <td><span class="badge ${margin >= 0 ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger"} border">${sign}₹${margin.toFixed(2)}</span></td>
+          <td>
+            <small class="text-muted d-block">${escapeHtml(ren.payment_ref || "Direct")}</small>
+            ${ren.notes ? `<small class="text-secondary fst-italic">${escapeHtml(ren.notes)}</small>` : ""}
+          </td>
+          <td class="text-end">
+            <div class="d-inline-flex gap-1">
+              <button class="btn btn-outline-primary btn-sm rounded-pill px-2 py-0" title="Edit Renewal" onclick="openEditRenewalModal('${ren.id}', '${warrantyId}')">
+                <i class="bi bi-pencil"></i> Edit
+              </button>
+              <button class="btn btn-outline-danger btn-sm rounded-pill px-2 py-0" title="Delete Renewal (Revert Expiry & Funds)" onclick="deleteRenewalRecord('${ren.id}', '${warrantyId}', this)">
+                <i class="bi bi-trash"></i> Delete
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = rowsHtml;
+  } catch (err) {
+    console.error("Error loading renewals history:", err);
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-3 text-danger">Failed to load renewal history.</td></tr>`;
+  }
+};
+
+window.openEditRenewalModal = async function (renewalId, warrantyId) {
+  const warranty = allWarranties.find((w) => w.id === warrantyId);
+  if (!warranty) return;
+
+  const renRes = await window.warrantyService.getRenewalsByWarranty(warrantyId);
+  const ren = (renRes.data || []).find((r) => r.id === renewalId);
+  if (!ren) {
+    alert("Renewal record not found.");
+    return;
+  }
+
+  document.getElementById("editRenewalId").value = ren.id;
+  document.getElementById("editRenewalWarrantyId").value = warrantyId;
+
+  document.getElementById("editRenewalCustomerName").textContent = warranty.customer_name || "Valued Customer";
+  document.getElementById("editRenewalProduct").innerHTML = `<i class="bi bi-box-seam me-1"></i>${escapeHtml(warranty.product_name)}`;
+  document.getElementById("editRenewalSerial").innerHTML = `<i class="bi bi-upc me-1"></i>${escapeHtml(warranty.serial_number)}`;
+  
+  const oldExpFormatted = ren.old_expiry ? formatDate(new Date(ren.old_expiry)) : "N/A";
+  document.getElementById("editRenewalOldExpiryBadge").textContent = oldExpFormatted;
+
+  document.getElementById("editRenewalDate").value = ren.renewal_date ? ren.renewal_date.split("T")[0] : "";
+  document.getElementById("editRenewalServiceStartDate").value = ren.service_start_date ? ren.service_start_date.split("T")[0] : (ren.renewal_date ? ren.renewal_date.split("T")[0] : "");
+  document.getElementById("editRenewalMonthsAdded").value = ren.months_added || 12;
+  document.getElementById("editRenewalDurationType").value = ren.duration_type || "month";
+
+  document.getElementById("editRenewalAmount").value = (ren.amount !== undefined && ren.amount !== null) ? ren.amount : "0.00";
+  document.getElementById("editRenewalCostPrice").value = (ren.cost_price !== undefined && ren.cost_price !== null) ? ren.cost_price : "0.00";
+
+  document.getElementById("editRenewalPaymentRef").value = ren.payment_ref || "";
+  document.getElementById("editRenewalNotes").value = ren.notes || "";
+
+  window.updateEditRenewalPreview();
+  window.updateEditRenewalProfitPreview();
+
+  if (editRenewalModalInstance) {
+    editRenewalModalInstance.show();
+  }
+};
+
+window.updateEditRenewalPreview = function () {
+  const serviceStartDateStr = document.getElementById("editRenewalServiceStartDate")?.value;
+  let baseDate = serviceStartDateStr ? new Date(serviceStartDateStr) : new Date();
+  baseDate.setHours(0, 0, 0, 0);
+
+  const dur = parseInt(document.getElementById("editRenewalMonthsAdded")?.value, 10) || 1;
+  const unit = document.getElementById("editRenewalDurationType")?.value || "month";
+
+  const newDate = calculateExpiry(baseDate, dur, unit);
+  newDate.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((newDate - today) / (1000 * 60 * 60 * 24));
+
+  const previewEl = document.getElementById("editRenewalPreviewNewDate");
+  const diffEl = document.getElementById("editRenewalPreviewDaysDiff");
+  if (previewEl) previewEl.textContent = formatDate(newDate);
+  if (diffEl) {
+    if (diffDays > 0) {
+      diffEl.textContent = `Valid for ${diffDays} days from today (till ${formatDate(newDate)})`;
+    } else if (diffDays === 0) {
+      diffEl.textContent = `Valid till end of today (+${dur} ${unit}s)`;
+    } else {
+      diffEl.textContent = `Expired ${Math.abs(diffDays)} days ago`;
+    }
+  }
+};
+
+window.updateEditRenewalProfitPreview = function () {
+  const sell = parseFloat(document.getElementById("editRenewalAmount")?.value) || 0;
+  const cost = parseFloat(document.getElementById("editRenewalCostPrice")?.value) || 0;
+  const margin = sell - cost;
+  const sign = margin >= 0 ? "+" : "";
+
+  const marginValEl = document.getElementById("editRenewalMarginValue");
+  const marginBox = document.getElementById("editRenewalMarginPreview");
+  if (marginValEl) {
+    marginValEl.textContent = `${sign}₹${margin.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  if (marginBox) {
+    marginBox.className = margin >= 0
+      ? "form-control bg-light fw-bold text-success d-flex align-items-center justify-content-between"
+      : "form-control bg-light fw-bold text-danger d-flex align-items-center justify-content-between";
+  }
+};
+
+window.handleEditRenewalFormSubmit = async function (e) {
+  e.preventDefault();
+  const renewalId = document.getElementById("editRenewalId").value;
+  const warrantyId = document.getElementById("editRenewalWarrantyId").value;
+  const btn = document.getElementById("saveEditRenewalBtn");
+
+  const rawAmount = document.getElementById("editRenewalAmount").value.trim();
+  const amountVal = parseFloat(rawAmount);
+  if (isNaN(amountVal) || amountVal < 0) {
+    alert("Please enter a valid renewal amount (>= 0).");
+    document.getElementById("editRenewalAmount").focus();
+    return;
+  }
+
+  const rawCost = document.getElementById("editRenewalCostPrice")?.value.trim() || "";
+  const costVal = rawCost !== "" ? parseFloat(rawCost) : 0;
+
+  const updates = {
+    renewal_date: document.getElementById("editRenewalDate")?.value || new Date().toISOString().split("T")[0],
+    service_start_date: document.getElementById("editRenewalServiceStartDate")?.value || new Date().toISOString().split("T")[0],
+    months_added: parseInt(document.getElementById("editRenewalMonthsAdded").value, 10) || 12,
+    duration_type: document.getElementById("editRenewalDurationType").value || "month",
+    amount: amountVal,
+    cost_price: isNaN(costVal) ? 0 : costVal,
+    payment_ref: document.getElementById("editRenewalPaymentRef")?.value.trim() || "",
+    notes: document.getElementById("editRenewalNotes")?.value.trim() || ""
+  };
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Saving...`;
+
+  try {
+    const res = await window.warrantyService.updateRenewal(renewalId, warrantyId, updates);
+    if (res.error) throw res.error;
+
+    if (editRenewalModalInstance) editRenewalModalInstance.hide();
+    await loadWarranties();
+    await openRenewalsHistoryModal(warrantyId);
+  } catch (err) {
+    console.error("Edit renewal error:", err);
+    alert("Failed to update renewal: " + (err.message || "Unknown error"));
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<i class="bi bi-check2 me-1"></i> Save Changes`;
+  }
+};
+
+window.deleteRenewalRecord = async function (renewalId, warrantyId, btnEl) {
+  if (!confirm("Are you sure you want to delete this renewal record?\n\nThis will undo this renewal transaction: the added validity will be reverted and the renewal amount will be deducted from this customer's total.")) {
+    return;
+  }
+
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = `<span class="spinner-border spinner-border-sm"></span>`;
+  }
+
+  try {
+    const res = await window.warrantyService.deleteRenewal(renewalId, warrantyId);
+    if (res.error) throw res.error;
+
+    // Reload main table & stats
+    await loadWarranties();
+
+    // Re-render the history modal for this customer
+    await openRenewalsHistoryModal(warrantyId);
+  } catch (err) {
+    console.error("Delete renewal error:", err);
+    alert("Failed to delete renewal: " + (err.message || "Unknown error"));
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.innerHTML = `<i class="bi bi-trash"></i> Delete`;
+    }
+  }
 };
 
 window.deleteWarrantyRecord = async function (id) {

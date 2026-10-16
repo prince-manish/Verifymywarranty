@@ -886,6 +886,376 @@
     </div>
 
     <!-- ================================================================= -->
+    <!-- MODAL: RENEW CUSTOMER LICENSE (IDEA 1) -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="renewLicenseModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2">
+                        <i class="bi bi-arrow-repeat text-success fs-4"></i> Renew Customer License
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="renewLicenseForm" onsubmit="handleRenewFormSubmit(event)">
+                    <div class="modal-body p-4">
+                        <input type="hidden" id="renewWarrantyId">
+                        <input type="hidden" id="renewOldExpiry">
+
+                        <!-- Customer & Product Summary Banner -->
+                        <div class="card border rounded-3 p-3 bg-light mb-3">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <div>
+                                    <h6 class="fw-bold mb-1 text-dark" id="renewModalCustomerName">Customer Name</h6>
+                                    <div class="small text-muted d-flex flex-wrap align-items-center gap-3">
+                                        <span id="renewModalProduct"><i class="bi bi-box-seam me-1"></i>Product</span>
+                                        <span id="renewModalSerial" class="font-monospace text-primary"><i class="bi bi-upc me-1"></i>FXZ-0000</span>
+                                        <span id="renewModalContact"><i class="bi bi-envelope me-1"></i>user@example.com</span>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="small text-muted mb-1">Current Valid Till</div>
+                                    <span class="badge bg-white text-dark border px-3 py-2 fs-6 fw-bold" id="renewModalCurrentExpiry">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <!-- Renewal Date & Service Start Date -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-calendar-check text-primary me-1"></i> Renewal / Payment Date <span class="text-danger">*</span>
+                                    <span class="text-muted fw-normal">(Defaults to Today)</span>
+                                </label>
+                                <input type="date" class="form-control" id="renewDate" required>
+                                <small class="text-muted">Date when payment was received</small>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label fw-semibold small mb-0">
+                                        <i class="bi bi-play-circle text-success me-1"></i> Service Start Date <span class="text-danger">*</span>
+                                    </label>
+                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none text-primary fw-semibold" onclick="setServiceStartDateToToday()">
+                                        <i class="bi bi-arrow-clockwise"></i> Set Today
+                                    </button>
+                                </div>
+                                <input type="date" class="form-control" id="renewServiceStartDate" required onchange="updateRenewPreview()">
+                                <small class="text-muted" id="renewServiceStartHint">Date when renewal validity begins</small>
+                            </div>
+
+                            <!-- Duration Selection (Default vs Custom) -->
+                            <div class="col-md-6">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label fw-semibold small mb-0">
+                                        <i class="bi bi-hourglass-split text-warning me-1"></i> Extension Duration <span class="text-danger">*</span>
+                                    </label>
+                                    <div class="btn-group btn-group-sm" role="group">
+                                        <input type="radio" class="btn-check" name="renewDurMode" id="renewDurModeDefault" value="default" checked onchange="toggleRenewDurationMode()">
+                                        <label class="btn btn-outline-primary py-0 px-2 fw-semibold" for="renewDurModeDefault" id="renewDurModeDefaultLabel">Default</label>
+                                        
+                                        <input type="radio" class="btn-check" name="renewDurMode" id="renewDurModeCustom" value="custom" onchange="toggleRenewDurationMode()">
+                                        <label class="btn btn-outline-secondary py-0 px-2" for="renewDurModeCustom">Custom</label>
+                                    </div>
+                                </div>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="renewMonthsAdded" value="12" min="1" required oninput="updateRenewPreview()">
+                                    <select class="form-select" id="renewDurationType" style="max-width: 130px;" onchange="updateRenewPreview()">
+                                        <option value="month">Months</option>
+                                        <option value="day">Days</option>
+                                    </select>
+                                </div>
+                                <small class="text-muted" id="renewDurationHint">Default duration configured for this product</small>
+                            </div>
+
+                            <!-- Live Calculated Expiry Preview -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-calendar-event text-success me-1"></i> New Valid Till Date (Calculated)
+                                </label>
+                                <div class="card border-success bg-success-subtle p-2 px-3 rounded-3 text-center">
+                                    <div class="h5 fw-bold text-success mb-0" id="renewPreviewNewDate">--</div>
+                                    <small class="text-muted mt-1" id="renewPreviewDaysDiff"></small>
+                                </div>
+                            </div>
+
+                            <!-- Pricing: Renewal Amount & Cost Price -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">
+                                    Renewal Price (₹) <span class="text-success fw-normal">(Customer Paid)</span> <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white fw-bold text-success">₹</span>
+                                    <input type="number" step="0.01" min="0" class="form-control" id="renewAmount" placeholder="99.00" required oninput="updateRenewProfitPreview()">
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">
+                                    Buy / Vendor Cost (₹) <span class="text-muted fw-normal">(0 if In-house)</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white fw-bold text-danger">₹</span>
+                                    <input type="number" step="0.01" min="0" class="form-control" id="renewCostPrice" placeholder="0.00" value="0.00" oninput="updateRenewProfitPreview()">
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">Net Renewal Margin</label>
+                                <div class="form-control bg-light fw-bold text-success d-flex align-items-center justify-content-between" id="renewMarginPreview">
+                                    <span>Margin:</span>
+                                    <span id="renewMarginValue">+₹0.00</span>
+                                </div>
+                            </div>
+
+                            <!-- Payment Reference & Notes -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">Payment Ref / Mode <span class="text-muted fw-normal">(Optional)</span></label>
+                                <input type="text" class="form-control" id="renewPaymentRef" placeholder="e.g. GPay / PhonePe / UTR 4293810293">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">Renewal Notes <span class="text-muted fw-normal">(Optional)</span></label>
+                                <input type="text" class="form-control" id="renewNotes" placeholder="e.g. Annual renewal requested via WhatsApp...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top bg-light d-flex justify-content-between">
+                        <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-success rounded-pill px-4 fw-bold" id="confirmRenewBtn">
+                            <i class="bi bi-arrow-repeat me-1"></i> Confirm & Record Renewal
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: POST-RENEWAL CONFIRMATION & NOTIFICATION OUTPUT -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="postRenewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <h5 class="modal-title fw-bold text-success d-flex align-items-center gap-2">
+                        <i class="bi bi-check-circle-fill"></i> Subscription Renewed Successfully!
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-2">Send this renewal confirmation receipt to your customer:</p>
+                    
+                    <!-- Pre-formatted Output Box -->
+                    <div class="copy-output-box mb-3" id="postRenewOutputText"></div>
+
+                    <div class="d-grid gap-2">
+                        <button type="button" class="btn btn-success py-2 fw-bold rounded-3 shadow-sm d-flex align-items-center justify-content-center gap-2" id="copyRenewOutputBtn" onclick="copyPostRenewOutput()">
+                            <i class="bi bi-clipboard-check fs-5"></i> <span id="copyRenewBtnLabel">Copy Message</span>
+                        </button>
+                        
+                        <div class="row g-2 mt-1">
+                            <div class="col-6">
+                                <a id="postRenewWhatsappBtn" href="#" target="_blank" class="btn btn-whatsapp w-100 py-2 rounded-3 text-center">
+                                    <i class="bi bi-whatsapp"></i> WhatsApp
+                                </a>
+                            </div>
+                            <div class="col-6">
+                                <a id="postRenewTelegramBtn" href="#" target="_blank" class="btn btn-telegram w-100 py-2 rounded-3 text-center">
+                                    <i class="bi bi-telegram"></i> Telegram
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: RENEWALS TRANSACTION HISTORY -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="renewalsHistoryModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2">
+                        <i class="bi bi-clock-history text-primary"></i> License Renewal History
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 pb-2 border-bottom">
+                        <div>
+                            <h6 class="fw-bold mb-0 text-dark" id="historyCustomerName">Customer Name</h6>
+                            <small class="text-muted" id="historyProductSerial">Product & Serial</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-success-subtle text-success border px-3 py-2 fs-6 fw-bold" id="historyTotalCollected">Total Paid: ₹0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Renewal Date</th>
+                                    <th>Duration Added</th>
+                                    <th>Validity Extended To</th>
+                                    <th>Amount Paid</th>
+                                    <th>Net Margin</th>
+                                    <th>Payment Ref / Notes</th>
+                                    <th class="text-end">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="renewalsHistoryTableBody">
+                                <tr>
+                                    <td colspan="7" class="text-center py-3 text-muted">Loading history...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
+    <!-- MODAL: EDIT RENEWAL TRANSACTION -->
+    <!-- ================================================================= -->
+    <div class="modal fade" id="editRenewalModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg rounded-4">
+                <div class="modal-header border-bottom bg-light">
+                    <h5 class="modal-title fw-bold text-dark d-flex align-items-center gap-2">
+                        <i class="bi bi-pencil-square text-primary"></i> Edit Renewal Transaction
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editRenewalForm" onsubmit="handleEditRenewalFormSubmit(event)">
+                    <div class="modal-body p-4">
+                        <input type="hidden" id="editRenewalId">
+                        <input type="hidden" id="editRenewalWarrantyId">
+
+                        <!-- Customer & Product Summary Banner -->
+                        <div class="card border rounded-3 p-3 bg-light mb-3">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <div>
+                                    <h6 class="fw-bold mb-1 text-dark" id="editRenewalCustomerName">Customer Name</h6>
+                                    <div class="small text-muted d-flex flex-wrap align-items-center gap-3">
+                                        <span id="editRenewalProduct"><i class="bi bi-box-seam me-1"></i>Product</span>
+                                        <span id="editRenewalSerial" class="font-monospace text-primary"><i class="bi bi-upc me-1"></i>FXZ-0000</span>
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <div class="small text-muted mb-1">Previous Expiry (Before This Renewal)</div>
+                                    <span class="badge bg-white text-dark border px-3 py-2 fs-6 fw-bold" id="editRenewalOldExpiryBadge">--</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3">
+                            <!-- Renewal Date & Service Start Date -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-calendar-check text-primary me-1"></i> Renewal / Payment Date <span class="text-danger">*</span>
+                                </label>
+                                <input type="date" class="form-control" id="editRenewalDate" required>
+                                <small class="text-muted">Date when renewal payment was made</small>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-play-circle text-success me-1"></i> Service Start Date <span class="text-danger">*</span>
+                                </label>
+                                <input type="date" class="form-control" id="editRenewalServiceStartDate" required onchange="updateEditRenewalPreview()">
+                                <small class="text-muted">Date when this renewed validity starts</small>
+                            </div>
+
+                            <!-- Duration -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-hourglass-split text-warning me-1"></i> Extension Duration <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="editRenewalMonthsAdded" min="1" required oninput="updateEditRenewalPreview()">
+                                    <select class="form-select" id="editRenewalDurationType" style="max-width: 130px;" onchange="updateEditRenewalPreview()">
+                                        <option value="month">Months</option>
+                                        <option value="day">Days</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Live Expiry Preview -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">
+                                    <i class="bi bi-calendar-event text-success me-1"></i> Updated Valid Till Date
+                                </label>
+                                <div class="card border-success bg-success-subtle p-2 px-3 rounded-3 text-center">
+                                    <div class="h5 fw-bold text-success mb-0" id="editRenewalPreviewNewDate">--</div>
+                                    <small class="text-muted mt-1" id="editRenewalPreviewDaysDiff"></small>
+                                </div>
+                            </div>
+
+                            <!-- Pricing: Renewal Amount & Cost Price -->
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">
+                                    Renewal Price (₹) <span class="text-success fw-normal">(Customer Paid)</span> <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white fw-bold text-success">₹</span>
+                                    <input type="number" step="0.01" min="0" class="form-control" id="editRenewalAmount" required oninput="updateEditRenewalProfitPreview()">
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">
+                                    Buy / Vendor Cost (₹)
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white fw-bold text-danger">₹</span>
+                                    <input type="number" step="0.01" min="0" class="form-control" id="editRenewalCostPrice" value="0.00" oninput="updateEditRenewalProfitPreview()">
+                                </div>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold small mb-1">Net Renewal Margin</label>
+                                <div class="form-control bg-light fw-bold text-success d-flex align-items-center justify-content-between" id="editRenewalMarginPreview">
+                                    <span>Margin:</span>
+                                    <span id="editRenewalMarginValue">+₹0.00</span>
+                                </div>
+                            </div>
+
+                            <!-- Payment Reference & Notes -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">Payment Ref / Mode <span class="text-muted fw-normal">(Optional)</span></label>
+                                <input type="text" class="form-control" id="editRenewalPaymentRef" placeholder="e.g. GPay / PhonePe / UTR 4293810293">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold small mb-1">Renewal Notes <span class="text-muted fw-normal">(Optional)</span></label>
+                                <input type="text" class="form-control" id="editRenewalNotes" placeholder="e.g. Annual renewal requested via WhatsApp...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top bg-light d-flex justify-content-between">
+                        <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4 fw-bold" id="saveEditRenewalBtn">
+                            <i class="bi bi-check2 me-1"></i> Save Changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================= -->
     <!-- MODAL: ADD / EDIT PRODUCT -->
     <!-- ================================================================= -->
     <div class="modal fade" id="productModal" tabindex="-1" aria-hidden="true">
@@ -1453,8 +1823,8 @@ SELECT public.update_admin_account('admin@foxzen.com', 'YourNewPassword123!');
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <!-- Application Scripts -->
-    <script src="../js/config.js?v=3.8"></script>
-    <script src="../js/supabaseClient.js?v=3.8"></script>
-    <script src="../js/admin.js?v=3.8"></script>
+    <script src="../js/config.js?v=4.3"></script>
+    <script src="../js/supabaseClient.js?v=4.3"></script>
+    <script src="../js/admin.js?v=4.3"></script>
 </body>
 </html>
