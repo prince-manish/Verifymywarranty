@@ -8,7 +8,7 @@ A modern, responsive warranty and product verification website inspired by [veri
 
 1. **Multi-Identifier Customer Search**:
    - Customers can look up their warranty status using **Serial Number**, **Email Address**, OR **Mobile Number** (supports formatted or unformatted digits).
-   - Real-time hardware warranty & software license validity countdowns.
+   - Real-time product warranty & product validity countdowns.
    - Privacy-first data masking (masks customer mobile `98****3210` and email `j***e@domain.com`).
    - Official printable warranty verification certificate/slip.
 

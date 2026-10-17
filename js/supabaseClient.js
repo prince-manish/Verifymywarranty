@@ -52,7 +52,7 @@ const DEFAULT_DEMO_PRODUCTS = [
     default_validity_months: 36,
     default_amount: 4999.00,
     duration_type: "month",
-    description: "Apple hardware with extended warranty package",
+    description: "Apple product with extended warranty package",
     created_at: new Date().toISOString()
   },
   {

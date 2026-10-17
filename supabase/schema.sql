@@ -131,7 +131,7 @@ INSERT INTO public.products (name, default_warranty_months, default_validity_mon
 VALUES 
 ('Foxzen License Pro 1-Year', 12, 12, 'month', 'Annual subscription license for Foxzen Services with premium support'),
 ('Foxzen License Ultimate 2-Year', 24, 24, 'month', 'Extended 2-year license with dedicated VIP account manager'),
-('MacBook Pro 16" M3 Max', 24, 36, 'month', 'Apple hardware with extended warranty package'),
+('MacBook Pro 16" M3 Max', 24, 36, 'month', 'Apple product with extended warranty package'),
 ('Dell UltraSharp 27" 4K Monitor', 12, 12, 'month', 'Professional color-accurate designer monitor'),
 ('Sony WH-1000XM5 Headphones', 12, 24, 'month', 'Active noise cancelling wireless headphones'),
 ('iPhone 16 Pro Max 256GB', 12, 12, 'month', 'Official retailer warranty and cloud sync support')

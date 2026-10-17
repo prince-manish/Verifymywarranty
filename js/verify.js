@@ -194,7 +194,7 @@ function renderResults(records) {
 
           <div class="warranty-detail-card p-3">
             <div class="warranty-detail-row">
-              <span class="warranty-label"><i class="bi bi-shield-check me-1 text-primary"></i> Hardware Warranty:</span>
+              <span class="warranty-label"><i class="bi bi-shield-check me-1 text-primary"></i> Product Warranty:</span>
               <span class="warranty-val ${isWarrantyActive ? "text-success" : "text-danger"}">
                 ${formatDate(warrantyExpiry)} 
                 <span class="badge ${isWarrantyActive ? "bg-success" : "bg-danger"} ms-1">
@@ -204,7 +204,7 @@ function renderResults(records) {
             </div>
 
             <div class="warranty-detail-row">
-              <span class="warranty-label"><i class="bi bi-cpu me-1 text-info"></i> Software / Validity:</span>
+              <span class="warranty-label"><i class="bi bi-cpu me-1 text-info"></i> Product Validity:</span>
               <span class="warranty-val ${isValidityActive ? "text-primary" : "text-danger"}">
                 ${formatDate(validityExpiry)}
                 <span class="badge ${isValidityActive ? "bg-primary" : "bg-danger"} ms-1">
